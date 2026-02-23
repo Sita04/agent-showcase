@@ -31,7 +31,6 @@ This demo showcases a **Multi-Agent System (MAS)** designed to handle complex, g
 - **Governance:** Vertex AI Agent Identity ensures each agent has only the permissions it needs.
 - **Interconnectivity:** LangGraph and CrewAI agents interact seamlessly with Vertex AI ADK agents via **A2A (Agent to Agent)** to demonstrate true cross-framework interoperability.
 
-
 ## Tech Stack
 
 - Agent Engine
