@@ -23,7 +23,6 @@ Also supports `GET` with query parameters.
 | `dataset_id` | string | No | `"mercari3m_text_128"` | Dataset to search (see [Datasets](#datasets)) |
 | `use_semantic_search` | boolean | No | `true` | Enable semantic (vector) search |
 | `use_text_search` | boolean | No | `false` | Enable keyword text search. **Note:** currently only supports exact matching |
-| `text_search_enhanced` | boolean | No | `true` | Use enhanced text search dialect (OR, phrase, negation) vs. word dialect (implicit AND) |
 | `rrf_alpha` | float | No | `0.5` | RRF weight for semantic search (0–1). Text search weight = 1 − rrf_alpha. Only applies to hybrid search |
 | `use_rerank` | string | No | `null` | Set to `"ranking_api"` to enable Discovery Engine reranking |
 | `force_knn` | boolean | No | `null` | `true` = force brute-force kNN, `false` = force ANN index, `null` = auto |
@@ -95,7 +94,7 @@ GET /api/query?query=vintage+leather+jacket&rows=20&use_semantic_search=true&use
 | `items[].description` | string | Product description |
 | `items[].img_url` | string | Product image URL |
 | `items[].url` | string | Product listing URL |
-| `items[].dense_dist` | float | Semantic search distance score (lower = more similar). For hybrid, RRF score × 1000 |
+| `items[].dense_dist` | float | Semantic search distance score. For hybrid, RRF score × 1000 |
 | `items[].sparse_dist` | float | Text search distance score. For hybrid, RRF score × 1000 |
 | `items[].rerank_score` | float | Reranking score (0.0 if reranking not used) |
 | `latencies` | object | Latency breakdown in seconds |
