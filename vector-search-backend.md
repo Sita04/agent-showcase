@@ -95,7 +95,7 @@ GET /api/query?query=vintage+leather+jacket&rows=20&use_semantic_search=true&use
 | `items[].name` | string | Product name |
 | `items[].description` | string | Product description |
 | `items[].img_url` | string | Product image URL |
-| `items[].url` | string | Product listing URL |
+| `items[].url` | string | Product listing URL. **Note:** as the dataset is not the latest, most product pages will show "sold out" |
 | `items[].dense_dist` | float | Semantic search distance score. For hybrid, RRF score × 1000 |
 | `items[].sparse_dist` | float | Text search distance score. For hybrid, RRF score × 1000 |
 | `items[].rerank_score` | float | Reranking score (0.0 if reranking not used) |
