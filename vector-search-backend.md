@@ -4,6 +4,8 @@
 
 A Flask-based search backend powered by Google Cloud Vertex AI Vector Search 2.0. Provides semantic, text, and hybrid search over product datasets (~2.8M Mercari items). CORS is enabled for all origins.
 
+> **Important:** The product dataset is provided courtesy of [Mercari, Inc.](https://www.mercari.com/). Any demo or UI built on this API must display an attribution such as "Product data provided courtesy of [Mercari](https://www.mercari.com/)".
+
 ---
 
 ## Endpoints
