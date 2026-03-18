@@ -24,15 +24,6 @@ That's it. Dependencies (`mcp[cli]`, `httpx`) are declared inline in `server.py`
 
 ## Quick Start
 
-### MCP Inspector (browser UI)
-
-```bash
-cd vector-search-backend/mcp
-npx @modelcontextprotocol/inspector uv run server.py
-```
-
-Opens a browser UI at `http://localhost:6274` where you can test tools and resources interactively.
-
 ### Gemini CLI
 
 Add to `~/.gemini/settings.json`:
@@ -151,7 +142,7 @@ See `search_agent/agent.py`:
 
 ```python
 root_agent = LlmAgent(
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     name="product_search_agent",
     instruction="Help users find products in the Mercari catalog. "
     "Use search_products to search and generate_sample_query for inspiration.",

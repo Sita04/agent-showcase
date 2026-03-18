@@ -10,7 +10,7 @@ MCP_SERVER_PATH = os.path.join(
 )
 
 root_agent = LlmAgent(
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     name="product_search_agent",
     instruction="Help users find products in the Mercari catalog. "
     "Use search_products to search and generate_sample_query for inspiration.",
