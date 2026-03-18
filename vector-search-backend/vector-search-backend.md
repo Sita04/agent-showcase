@@ -2,7 +2,7 @@
 
 **Base URL**: [`https://ac-web2-761793285222.us-central1.run.app`](https://ac-web2-761793285222.us-central1.run.app)
 
-A Flask-based search backend powered by Google Cloud Vertex AI Vector Search 2.0. Provides semantic, text, and hybrid search over product datasets (~2.8M Mercari items). CORS is enabled for all origins.
+A Flask-based search backend powered by Google Cloud Vertex AI Vector Search 2.0. Provides semantic, text, and hybrid search over product datasets (~2.8M Mercari items). CORS is enabled for all origins. An [MCP server](mcp/README.md) is also available for AI agent integration.
 
 > **Important:** The product dataset is provided courtesy of [Mercari, Inc.](https://www.mercari.com/). Any demo or UI built on this API must display an attribution such as "Product data provided courtesy of [Mercari](https://www.mercari.com/)".
 
