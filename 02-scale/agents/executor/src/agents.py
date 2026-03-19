@@ -14,10 +14,11 @@
 
 import os
 import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from crewai import Agent, LLM
-from src.tools import MCPTools
+from src.tools import LocalTools
 from src.prompts import AGENT_PROMPTS
 from config.default_config import config
 
@@ -28,20 +29,20 @@ class ExecutorAgents:
         # Configure the LLM to use Vertex AI
         os.environ["VERTEXAI_PROJECT"] = config.GOOGLE_CLOUD_PROJECT
         os.environ["VERTEXAI_LOCATION"] = config.GOOGLE_CLOUD_LOCATION_GLOBAL
-        
+
         self.llm = LLM(
             model=config.AGENT_MODEL,
             temperature=config.AGENT_TEMPERATURE,
             max_tokens=config.AGENT_MAX_TOKENS,
         )
 
-    def sourcing_specialist(self):
+    def sourcing_specialist(self, mcp_tools):
         prompts = AGENT_PROMPTS["sourcing_specialist"]
         return Agent(
             role=prompts["role"],
             goal=prompts["goal"],
             backstory=prompts["backstory"],
-            tools=[MCPTools.search_vectors],
+            tools=mcp_tools,
             verbose=True,
             allow_delegation=False,
             memory=False,
@@ -56,7 +57,7 @@ class ExecutorAgents:
             role=prompts["role"],
             goal=prompts["goal"],
             backstory=prompts["backstory"],
-            tools=[MCPTools.create_purchase_order, MCPTools.check_budget],
+            tools=[LocalTools.create_purchase_order, LocalTools.check_budget],
             verbose=True,
             allow_delegation=False,
             memory=False,

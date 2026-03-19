@@ -123,32 +123,36 @@ async def search_products(
     used_knn = data.get("used_knn")
 
     if not items:
-        return "No results found."
+        return json.dumps({"results": [], "count": 0})
 
-    # Format results as readable text for the LLM
-    lines = [f"Found {len(items)} results (search: {latencies.get('query', 0):.2f}s, "
-             f"index: {'kNN' if used_knn else 'ANN' if used_knn is False else 'N/A'}):\n"]
+    # Build structured results for programmatic consumption
+    results = []
+    for item in items:
+        similarity = (
+            item.get("rerank_score")
+            or item.get("dense_dist")
+            or item.get("sparse_dist")
+            or 0.0
+        )
+        results.append({
+            "id": item.get("id", ""),
+            "name": item.get("name", ""),
+            "description": item.get("description", ""),
+            "url": item.get("url", ""),
+            "img_url": item.get("img_url", ""),
+            "price": 0.0,
+            "similarity": round(similarity, 4),
+        })
 
-    for i, item in enumerate(items, 1):
-        name = item.get("name", "")
-        desc = item.get("description", "")
-        img_url = item.get("img_url", "")
-        url = item.get("url", "")
-        score = item.get("dense_dist") or item.get("sparse_dist") or item.get("rerank_score") or 0
+    search_time = f"{latencies.get('query', 0):.2f}s"
+    index_type = "kNN" if used_knn else "ANN" if used_knn is False else "N/A"
 
-        line = f"{i}. {name}"
-        if desc:
-            # Truncate long descriptions
-            short_desc = desc[:150] + "..." if len(desc) > 150 else desc
-            line += f"\n   {short_desc}"
-        if url:
-            line += f"\n   URL: {url}"
-        if img_url:
-            line += f"\n   Image: {img_url}"
-        line += f"\n   Score: {score:.4f}"
-        lines.append(line)
-
-    return "\n".join(lines)
+    return json.dumps({
+        "results": results,
+        "count": len(results),
+        "search_time": search_time,
+        "index_type": index_type,
+    })
 
 
 # ---------------------------------------------------------------------------

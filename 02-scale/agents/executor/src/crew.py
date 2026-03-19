@@ -20,6 +20,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 from crewai import Crew, Process, LLM
 from src.agents import ExecutorAgents
 from src.tasks import ExecutorTasks
+from src.tools import get_mcp_server
 from dotenv import load_dotenv
 import logging
 from config.default_config import config
@@ -47,51 +48,54 @@ class LogisticsExecutionCrew:
             budget: Maximum price per unit.
             quantity: Number of units to order.
         """
-        # Create Agents
-        sourcing_agent = self.agents.sourcing_specialist()
-        procurement_agent = self.agents.procurement_officer()
+        # Connect to the Vector Search MCP server
+        mcp_server = get_mcp_server()
+        with mcp_server as mcp_tools:
+            # Create Agents
+            sourcing_agent = self.agents.sourcing_specialist(mcp_tools=mcp_tools)
+            procurement_agent = self.agents.procurement_officer()
 
-        # Define Tasks
-        sourcing_task = self.tasks.sourcing_task(
-            agent=sourcing_agent,
-            item_description=task_description,
-            max_budget=budget
-        )
-        
-        procurement_task = self.tasks.procurement_task(
-            agent=procurement_agent,
-            quantity=quantity
-        )
-        
-        # Link context manually (optional in new CrewAI versions, but good practice)
-        procurement_task.context = [sourcing_task]
+            # Define Tasks
+            sourcing_task = self.tasks.sourcing_task(
+                agent=sourcing_agent,
+                item_description=task_description,
+                max_budget=budget
+            )
 
-        # Configure Embedder
-        from typing import Any
-        vertex_embedder: Any = {
-            "provider": "google-vertex",
-            "config": {
-                "model_name": config.EMBEDDER_MODEL,
-                "project_id": config.GOOGLE_CLOUD_PROJECT,
-                "location": config.GOOGLE_CLOUD_LOCATION_REGIONAL
+            procurement_task = self.tasks.procurement_task(
+                agent=procurement_agent,
+                quantity=quantity
+            )
+
+            # Link context manually (optional in new CrewAI versions, but good practice)
+            procurement_task.context = [sourcing_task]
+
+            # Configure Embedder
+            from typing import Any
+            vertex_embedder: Any = {
+                "provider": "google-vertex",
+                "config": {
+                    "model_name": config.EMBEDDER_MODEL,
+                    "project_id": config.GOOGLE_CLOUD_PROJECT,
+                    "location": config.GOOGLE_CLOUD_LOCATION_REGIONAL
+                }
             }
-        }
 
-        # Create Crew
-        crew = Crew(
-            agents=[sourcing_agent, procurement_agent],
-            tasks=[sourcing_task, procurement_task],
-            process=Process.sequential, # Run sequentially: Source --> Procure
-            verbose=True,
-            memory=False,
-            planning=True,
-            planning_llm=LLM(model=config.PLANNING_MODEL),
-            embedder=vertex_embedder # type: ignore
-        )
+            # Create Crew
+            crew = Crew(
+                agents=[sourcing_agent, procurement_agent],
+                tasks=[sourcing_task, procurement_task],
+                process=Process.sequential, # Run sequentially: Source --> Procure
+                verbose=True,
+                memory=False,
+                planning=True,
+                planning_llm=LLM(model=config.PLANNING_MODEL),
+                embedder=vertex_embedder # type: ignore
+            )
 
-        # Execute
-        result = crew.kickoff()
-        return result
+            # Execute
+            result = crew.kickoff()
+            return result
 
 # Example Usage (for testing)
 if __name__ == "__main__":

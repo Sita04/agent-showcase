@@ -78,17 +78,28 @@ Search the Mercari product catalog using semantic search with reranking.
 | `dataset_id` | string | `mercari3m_text` | Dataset to search |
 | `rows` | int | `10` | Number of results (1-100) |
 
-Example response:
+Returns structured JSON:
+```json
+{
+  "results": [
+    {
+      "id": "m12345",
+      "name": "Vintage Coach Leather Bag",
+      "description": "Gently loved vintage Coach bag...",
+      "url": "https://www.mercari.com/us/item/m12345/",
+      "img_url": "https://u-mercari-images.mercdn.net/photos/m12345_1.jpg",
+      "price": 0.0,
+      "similarity": 0.5346
+    }
+  ],
+  "count": 10,
+  "search_time": "0.45s",
+  "index_type": "ANN"
+}
 ```
-Found 10 results (search: 0.45s, index: ANN):
 
-1. Vintage Coach Leather Bag
-   Gently loved vintage Coach bag
-   URL: https://www.mercari.com/us/item/m12345/
-   Image: https://u-mercari-images.mercdn.net/photos/m12345_1.jpg
-   Score: 0.2732
-...
-```
+- `similarity`: rerank score (0–1, higher = more similar). Falls back to dense/sparse distance when reranking is unavailable.
+- `price`: placeholder (0.0) — real price data not yet available from the API.
 
 #### `generate_sample_query`
 
