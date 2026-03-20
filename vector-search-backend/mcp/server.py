@@ -77,18 +77,26 @@ async def list_datasets() -> str:
 @mcp.tool()
 async def search_products(
     query: str,
-    dataset_id: str = "mercari3m_text",
+    dataset_id: str = "mercari1m_mm2",
     rows: int = 10,
+    filter: str = "",
 ) -> str:
-    """Search the Mercari product catalog (2.8M items) using Vector Search 2.0.
+    """Search the Mercari product catalog using Vector Search 2.0.
 
     Uses semantic search with reranking for best results.
-    Multimodal datasets (e.g. mercari3m_multimodal) support text-to-image search.
+    Default dataset (mercari1m_mm2) uses dual vector search combining text and
+    image embeddings for multimodal matching. Results include estimated prices.
 
     Args:
         query: Search query text (e.g. "men's beach shoes", "vintage camera")
-        dataset_id: Dataset to search. Use the datasets resource to see available options.
+        dataset_id: Dataset to search. Default: mercari1m_mm2 (882K items, multimodal).
+                    Use the datasets resource to see all available options.
         rows: Number of results to return (1-100, default 10).
+        filter: JSON string with metadata filters. Supported operators:
+                $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin, $and, $or.
+                Examples:
+                  Price under $50: {"price": {"$lt": 50}}
+                  Price range: {"$and": [{"price": {"$gte": 10}}, {"price": {"$lte": 50}}]}
     """
     # Build REST API payload
     payload: dict = {
@@ -97,14 +105,19 @@ async def search_products(
         "rows": min(max(rows, 1), 100),
         "use_semantic_search": True,
         "use_text_search": False,
-        "use_rerank": "ranking_api",
     }
 
+    if filter.strip():
+        try:
+            payload["filter"] = json.loads(filter)
+        except json.JSONDecodeError:
+            return "Error: Invalid JSON filter string."
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(f"{API_BASE}/api/query", json=payload)
     except httpx.TimeoutException:
-        return "Error: Search request timed out (30s). The backend may be cold-starting — try again in a moment."
+        return "Error: Search request timed out (60s). The backend may be cold-starting — try again in a moment."
     except httpx.RequestError as e:
         return f"Error: Could not connect to search API: {e}"
 
@@ -134,15 +147,18 @@ async def search_products(
             or item.get("sparse_dist")
             or 0.0
         )
-        results.append({
+        result = {
             "id": item.get("id", ""),
             "name": item.get("name", ""),
             "description": item.get("description", ""),
             "url": item.get("url", ""),
             "img_url": item.get("img_url", ""),
-            "price": 0.0,
             "similarity": round(similarity, 4),
-        })
+        }
+        price = item.get("price")
+        if price is not None:
+            result["price"] = price
+        results.append(result)
 
     search_time = f"{latencies.get('query', 0):.2f}s"
     index_type = "kNN" if used_knn else "ANN" if used_knn is False else "N/A"
@@ -161,7 +177,7 @@ async def search_products(
 
 
 @mcp.tool()
-async def generate_sample_query(dataset_id: str = "mercari3m_text") -> str:
+async def generate_sample_query(dataset_id: str = "mercari1m_mm2") -> str:
     """Generate a random sample search query for exploring the product catalog.
 
     Uses Gemini to create a realistic shopper query. Useful for demos or

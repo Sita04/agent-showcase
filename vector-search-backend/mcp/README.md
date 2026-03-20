@@ -1,6 +1,6 @@
 # Vector Search Backend MCP Server
 
-An MCP (Model Context Protocol) server that lets AI agents search a catalog of 2.8M Mercari products using Google Cloud Vector Search 2.0.
+An MCP (Model Context Protocol) server that lets AI agents search a catalog of Mercari products using Google Cloud Vector Search 2.0 with multimodal embeddings.
 
 ## Architecture
 
@@ -11,7 +11,7 @@ MCP Server (server.py)
     |  HTTPS
 Cloud Run REST API
     |  gRPC
-Google Cloud Vector Search 2.0 + Gemini + Discovery Engine
+Google Cloud Vector Search 2.0 + Gemini Embedding 2 + Discovery Engine
 ```
 
 The server is a thin HTTP proxy — no GCP credentials or heavy dependencies needed locally.
@@ -70,13 +70,25 @@ Add to `.claude/settings.json`:
 
 #### `search_products`
 
-Search the Mercari product catalog using semantic search with reranking.
+Search the Mercari product catalog using dual vector search (text + image embeddings) with semantic reranking.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `query` | string (required) | - | Search text (e.g. "vintage leather bag") |
-| `dataset_id` | string | `mercari3m_text` | Dataset to search |
+| `dataset_id` | string | `mercari1m_mm2` | Dataset to search |
 | `rows` | int | `10` | Number of results (1-100) |
+| `filter` | string | `""` | JSON metadata filter (see below) |
+
+**Filter examples:**
+
+```
+Price under $50:        {"price": {"$lt": 50}}
+Price range:            {"$and": [{"price": {"$gte": 10}}, {"price": {"$lte": 50}}]}
+```
+
+Supported operators: `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin`, `$and`, `$or`.
+
+> **Note:** Filtering requires the target field to be in `filter_fields` on the ANN index. The default dataset (`mercari1m_mm2`) supports price filtering.
 
 Returns structured JSON:
 ```json
@@ -88,18 +100,31 @@ Returns structured JSON:
       "description": "Gently loved vintage Coach bag...",
       "url": "https://www.mercari.com/us/item/m12345/",
       "img_url": "https://u-mercari-images.mercdn.net/photos/m12345_1.jpg",
-      "price": 0.0,
-      "similarity": 0.5346
+      "price": 45.0,
+      "similarity": 8.1967
     }
   ],
   "count": 10,
-  "search_time": "0.45s",
+  "search_time": "0.04s",
   "index_type": "ANN"
 }
 ```
 
-- `similarity`: rerank score (0–1, higher = more similar). Falls back to dense/sparse distance when reranking is unavailable.
-- `price`: placeholder (0.0) — real price data not yet available from the API.
+**Response fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `results` | array | List of matching product objects |
+| `results[].id` | string | Unique product identifier (e.g. `m12345`) |
+| `results[].name` | string | Product title |
+| `results[].description` | string | Product description text |
+| `results[].url` | string | Mercari product page URL |
+| `results[].img_url` | string | Product image URL |
+| `results[].price` | float | Estimated price in USD (Gemini-generated). Only present for datasets with `price` in index `store_fields` |
+| `results[].similarity` | float | Relevance score. Combined RRF score from dual vector search (text_emb + image_emb) for the default dataset. Falls back to dense or sparse distance for other datasets. Higher is more relevant |
+| `count` | int | Number of results returned |
+| `search_time` | string | Backend query latency (e.g. `"0.04s"`) |
+| `index_type` | string | `"ANN"` (approximate nearest neighbor index) or `"kNN"` (brute-force scan) or `"N/A"` |
 
 #### `generate_sample_query`
 
@@ -107,7 +132,7 @@ Generate a random search query using Gemini. Useful for demos or exploring the c
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `dataset_id` | string | `mercari3m_text` | Dataset context |
+| `dataset_id` | string | `mercari1m_mm2` | Dataset context |
 
 ### Resources
 
@@ -117,13 +142,14 @@ Lists available datasets with metadata (ID, name, description, size, embedding m
 
 ## Available Datasets
 
-| Dataset ID | Embedding Model | Dims | Description |
-|---|---|---|---|
-| `mercari3m_text` | gemini-embedding-001 | 768 | Full-dimension text embeddings (default) |
-| `mercari3m_text_128` | gemini-embedding-001 | 128 | Reduced dimensions, smaller index |
-| `mercari3m_text_similarity` | gemini-embedding-001 | 768 | SEMANTIC_SIMILARITY task type |
-| `mercari3m_word2vec` | Gensim Word2Vec | 100 | Word-level semantic matching |
-| `mercari3m_multimodal` | multimodal-embedding-001 | 1408 | Text-to-image search |
+| Dataset ID | Embedding Model | Dims | Items | Description |
+|---|---|---|---|---|
+| `mercari1m_mm2` | gemini-embedding-2-preview | 768 | 882K | Dual vector (text+image) multimodal search **(default)** |
+| `mercari3m_text` | gemini-embedding-001 | 768 | 2.8M | Full-dimension text embeddings |
+| `mercari3m_text_128` | gemini-embedding-001 | 128 | 2.8M | Reduced dimensions, smaller index |
+| `mercari3m_text_similarity` | gemini-embedding-001 | 768 | 2.8M | SEMANTIC_SIMILARITY task type |
+| `mercari3m_word2vec` | Gensim Word2Vec | 100 | 2.8M | Word-level semantic matching |
+| `mercari3m_multimodal` | multimodal-embedding-001 | 1408 | 2.8M | Text-to-image search |
 
 ## ADK (Agent Development Kit) Integration
 

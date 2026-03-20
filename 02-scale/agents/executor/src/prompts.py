@@ -40,7 +40,7 @@ TASK_PROMPTS = {
         "description": dedent("""
             Find the best available products that match the description: '{item_description}'.
             
-            1. Use the 'search_products' tool to find items.
+            1. Use the 'search_products' tool with dataset_id='mercari1m_mm2' to find items.
             2. Filter out any items that are clearly irrelevant or over the budget of ${max_budget}.
             3. Provide a list of the top 3 candidates with their ID, Name, Price, and a brief 'Match Reason'.
             4. If no good matches are found, try ONE alternative search query (e.g., simpler terms).
