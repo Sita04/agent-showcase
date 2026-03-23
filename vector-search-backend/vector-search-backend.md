@@ -30,6 +30,7 @@ Also supports `GET` with query parameters.
 | `force_knn` | boolean | No | `null` | `true` = force brute-force kNN, `false` = force ANN index, `null` = auto |
 
 **Validation rules:**
+
 - At least one of `use_semantic_search` or `use_text_search` must be `true`
 - `rrf_alpha` must be between 0 and 1
 - `dataset_id` must be a valid dataset ID if provided

@@ -39,11 +39,18 @@ Scale multi-agent systems for sophisticated use cases. Use **Google Agent Engine
     uv add crewai crewai-tools langchain-google-vertexai python-dotenv requests mcp
     ```
 
-4. **Running the Agents**:
+4. **Environment Setup**:
+    To enable deep tracing of the agents' internal thoughts and tool usage, create a `.env` file in the root directory:
+
+    ```bash
+    echo 'CREWAI_TRACING_ENABLED=true' > .env
+    ```
+
+5. **Running the Agents**:
     To run the Executor Crew directly:
 
     ```bash
-    uv run python agents/executor/src/crew.py
+    uv run agents/executor/src/crew.py
     ```
 
 ## Pitch
@@ -117,4 +124,24 @@ graph TD
 
 ## Running the Demo
 
-> (Coming Soon: Instructions for scaffolding agents and running the MCP server)
+### Testing the MCP Server (Standalone)
+
+Before running the full agent workflow, you can test the **Mock Order Management System (OMS)** MCP server directly using the official Model Context Protocol Inspector.
+
+1. Open a new terminal window.
+2. Run the Inspector with the required environment variables and the `-q` (quiet) flag to prevent `uv` from polluting the JSON stream:
+
+    ```bash
+    GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID> npx @modelcontextprotocol/inspector uv run -q mock_oms_mcp/server.py
+    ```
+
+3. Open the provided `localhost:6274` URL in your browser.
+4. On the left sidebar, select tools like `check_budget` or `create_purchase_order`, provide arguments (e.g., `amount: 50`, `category: collectibles`), and click "Run Tool" to see the JSON response.
+
+### Running the Agent Execution Swarm
+
+Once you've verified the tools work, you can run the CrewAI worker agents. They will seamlessly connect to the MCP servers in the background and execute the logistics tasks autonomously.
+
+```bash
+uv run -q agents/executor/src/crew.py
+```

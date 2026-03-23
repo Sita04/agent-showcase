@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Load .env from the project root
-root_dir = Path(__file__).resolve().parent.parent.parent.parent
+# Load .env from the project root (02-scale)
+root_dir = Path(__file__).resolve().parent.parent.parent
 load_dotenv(dotenv_path=root_dir / ".env")
 
 @dataclass

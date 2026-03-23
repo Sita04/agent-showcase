@@ -20,10 +20,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 from crewai import Crew, Process, LLM
 from src.agents import ExecutorAgents
 from src.tasks import ExecutorTasks
-from src.tools import get_mcp_server
+from src.tools import get_mcp_server, get_mock_oms_mcp
 from dotenv import load_dotenv
 import logging
 from config.default_config import config
+from contextlib import ExitStack
 
 # Set up logging to capture any reasoning errors
 logging.basicConfig(level=logging.INFO)
@@ -48,12 +49,17 @@ class LogisticsExecutionCrew:
             budget: Maximum price per unit.
             quantity: Number of units to order.
         """
-        # Connect to the Vector Search MCP server
+        # Connect to both MCP servers using an ExitStack to manage multiple context managers
         mcp_server = get_mcp_server()
-        with mcp_server as mcp_tools:
+        oms_mcp_server = get_mock_oms_mcp()
+        
+        with ExitStack() as stack:
+            vector_mcp_tools = stack.enter_context(mcp_server)
+            oms_mcp_tools = stack.enter_context(oms_mcp_server)
+            
             # Create Agents
-            sourcing_agent = self.agents.sourcing_specialist(mcp_tools=mcp_tools)
-            procurement_agent = self.agents.procurement_officer()
+            sourcing_agent = self.agents.sourcing_specialist(mcp_tools=vector_mcp_tools)
+            procurement_agent = self.agents.procurement_officer(mcp_tools=oms_mcp_tools)
 
             # Define Tasks
             sourcing_task = self.tasks.sourcing_task(
