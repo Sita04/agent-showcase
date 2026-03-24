@@ -1,5 +1,6 @@
 # Scale AI Agents: Global Retail IT Orchestrator
 
+**Owners:** Emmanuel Awa, Kaz Sato  
 **Track:** Build AI Apps & Agents  
 **Session IDs:** GCS109, SHOW134  
 **Type:** Live Demo  
@@ -24,33 +25,26 @@ Scale multi-agent systems for sophisticated use cases. Use **Google Agent Engine
     curl -LsSf https://astral.sh/uv/install.sh | sh
     ```
 
-2. **Initialize the Project**:
-    Navigate to the `02-scale` directory and initialize the project:
+2. **Sync Dependencies**:
+    The project uses a unified virtual environment at the repository root. Navigate to the `02-scale` directory (or root) and sync dependencies:
 
     ```bash
-    cd 02-scale
-    uv init
+    uv sync
     ```
 
-3. **Install Dependencies**:
-    Add the required packages for the Executor Agents (CrewAI) and Planning Agents (LangGraph):
-
-    ```bash
-    uv add crewai crewai-tools langchain-google-vertexai python-dotenv requests mcp
-    ```
-
-4. **Environment Setup**:
+3. **Environment Setup**:
     To enable deep tracing of the agents' internal thoughts and tool usage, create a `.env` file in the root directory:
 
     ```bash
     echo 'CREWAI_TRACING_ENABLED=true' > .env
+    echo 'GOOGLE_CLOUD_PROJECT=your-project-id' >> .env
     ```
 
-5. **Running the Agents**:
-    To run the Executor Crew directly:
+4. **Running the Full System (LangGraph Planner + CrewAI Executor)**:
+    To run the complete end-to-end multi-agent system:
 
     ```bash
-    uv run agents/executor/src/crew.py
+    uv run -q agents/planner/src/graph.py
     ```
 
 ## Pitch

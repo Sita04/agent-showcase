@@ -1,0 +1,16 @@
+# This file controls who owns which parts of the next26-agent-showcase repository
+
+## Default owners for the entire repo
+
+* @emmanuelawa
+* @kazsato
+* @sitalakshmi
+* @laxmih
+* @vineshpm
+
+## Subproject owners
+
+* /01-build/ @laxmih
+* /02-scale/ @emmanuelawa @kazsato
+* /03-govern/ @sitalakshmi @vineshpm
+* /vector-search-backend/ @kazsato
