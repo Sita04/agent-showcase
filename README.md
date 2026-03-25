@@ -13,4 +13,21 @@ This repository contains multiple multi-agent system demonstrations showcasing d
 
 ## Getting Started
 
-Each directory contains its own `README.md` and configuration files (`pyproject.toml`, `requirements.txt`) with specific setup and execution instructions. Please navigate to the individual project folders for detailed documentation on running the agents and their respective services.
+### Unified Workspace Setup
+
+This repository uses [`uv`](https://github.com/astral-sh/uv) to manage a unified Python workspace across all sub-projects. You can easily set up the master virtual environment from the root directory:
+
+1. **Install `uv`** (if you haven't already):
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+2. **Sync Dependencies**:
+   Sync dependencies for all projects from the repository root:
+   ```bash
+   uv sync
+   ```
+
+### Running the Demos
+
+Each directory contains its own `README.md` and configuration files (`pyproject.toml`, `requirements.txt`) with specific execution instructions. Please navigate to the individual project folders for detailed documentation on running the agents and their respective services.
