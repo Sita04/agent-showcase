@@ -237,23 +237,15 @@ The `mercari3m_*` datasets contain ~2,874,425 Mercari product listings. The `mer
 
 ## MCP Server
 
-An MCP (Model Context Protocol) server in [`mcp/`](mcp/) lets AI agents use the search backend via stdio. It is a thin HTTP proxy — no GCP credentials or heavy dependencies needed locally.
+An MCP (Model Context Protocol) server deployed alongside the Flask app on Cloud Run. Clients connect via Streamable HTTP — no local dependencies needed.
 
 ```
 MCP Client (Claude Code, Gemini CLI, Cursor, ADK Agent, etc.)
-    |  stdio (local)
-MCP Server (mcp/server.py)
-    |  HTTPS
-Cloud Run REST API
-    |  gRPC
+    |  Streamable HTTP
+Cloud Run (asgi_app.py at /mcp)
+    |  direct function calls
 Google Cloud Vector Search 2.0 + Gemini Embedding 2 + Discovery Engine
 ```
-
-### Prerequisites
-
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) (Python package manager)
-
-Dependencies (`mcp[cli]`, `httpx`) are declared inline in `server.py` via PEP 723 and installed automatically by `uv` on first run.
 
 ### Client Configuration
 
@@ -265,13 +257,7 @@ Add to `~/.gemini/settings.json`:
 {
   "mcpServers": {
     "vector-search-backend": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/ABSOLUTE/PATH/TO/vector-search-backend/mcp",
-        "run",
-        "server.py"
-      ]
+      "url": "https://ac-web2-761793285222.us-central1.run.app/mcp"
     }
   }
 }
@@ -285,13 +271,7 @@ Add to `.claude/settings.json`:
 {
   "mcpServers": {
     "vector-search-backend": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/ABSOLUTE/PATH/TO/vector-search-backend/mcp",
-        "run",
-        "server.py"
-      ]
+      "url": "https://ac-web2-761793285222.us-central1.run.app/mcp"
     }
   }
 }
@@ -373,31 +353,12 @@ Lists available datasets with metadata (ID, name, description, size, embedding m
 
 ### ADK (Agent Development Kit) Integration
 
-A sample ADK agent is included in `mcp/search_agent/`. It uses `McpToolset` to connect to the MCP server and exposes the search tools to a Gemini model.
-
-#### Quick Start with adk run
-
-```bash
-cd vector-search-backend/mcp
-uv run --with google-adk --with mcp adk run search_agent
-```
-
-This starts an interactive chat — type a query like "find me vintage leather bags" and press Enter.
-
-#### Running with adk web
-
-```bash
-cd vector-search-backend/mcp
-uv run --with google-adk --with mcp adk web
-```
-
-Then open the browser UI and select `search_agent`.
-
-#### Agent Code
-
-See `mcp/search_agent/agent.py`:
+Example ADK agent using `McpToolset` with Streamable HTTP:
 
 ```python
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp import McpToolset, StreamableHTTPConnectionParams
+
 root_agent = LlmAgent(
     model="gemini-2.5-flash",
     name="product_search_agent",
@@ -405,12 +366,8 @@ root_agent = LlmAgent(
     "Use search_products to search and generate_sample_query for inspiration.",
     tools=[
         McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="uv",
-                    args=["run", MCP_SERVER_PATH],
-                ),
-                timeout=30,
+            connection_params=StreamableHTTPConnectionParams(
+                url="https://ac-web2-761793285222.us-central1.run.app/mcp",
             ),
             tool_filter=["search_products", "generate_sample_query"],
         )
@@ -418,6 +375,4 @@ root_agent = LlmAgent(
 )
 ```
 
-#### Deployment Note
-
-When deploying ADK agents with MCP tools, the agent and its `McpToolset` must be defined **synchronously** at module level in `agent.py` (not inside an async function). The example above follows this pattern.
+> **Note:** When deploying ADK agents with MCP tools, the agent and its `McpToolset` must be defined **synchronously** at module level in `agent.py` (not inside an async function).

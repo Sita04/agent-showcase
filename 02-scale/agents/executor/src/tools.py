@@ -21,10 +21,7 @@ from crewai_tools import MCPServerAdapter
 from mcp import StdioServerParameters
 from config.default_config import config
 
-MCP_SERVER_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', '..', '..', '..',
-                 'vector-search-backend', 'mcp', 'server.py')
-)
+VECTOR_SEARCH_MCP_URL = "https://ac-web2-761793285222.us-central1.run.app/mcp"
 
 OMS_MCP_SERVER_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', '..', '..',
@@ -34,10 +31,7 @@ OMS_MCP_SERVER_PATH = os.path.abspath(
 def get_mcp_server():
     """Create an MCPServerAdapter connected to the Vector Search MCP server."""
     return MCPServerAdapter(
-        StdioServerParameters(
-            command="uv",
-            args=["run", "-q", MCP_SERVER_PATH],
-        ),
+        {"url": VECTOR_SEARCH_MCP_URL, "transport": "streamable-http"},
         "search_products",
     )
 
