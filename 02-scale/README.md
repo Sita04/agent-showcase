@@ -40,13 +40,6 @@ Scale multi-agent systems for sophisticated use cases. Use **Google Agent Engine
     echo 'GOOGLE_CLOUD_PROJECT=your-project-id' >> .env
     ```
 
-4. **Running the Full System (LangGraph Planner + CrewAI Executor)**:
-    To run the complete end-to-end multi-agent system:
-
-    ```bash
-    uv run -q agents/planner/src/graph.py
-    ```
-
 ## Pitch
 
 Ready to coordinate a Multi-Agent System (MAS)? We show how to leverage **Google Agent Platform** to manage a high-performance team where a strategic **Planning Agent** (LangGraph) delegates tasks to tactical **Execution Agents** (CrewAI), enforcing strict security boundaries via **Agent Identity**.
@@ -64,7 +57,7 @@ This demo showcases a **Multi-Agent System (MAS)** designed to handle complex lo
 
 **The Solution:** A "Hub-and-Spoke" delegation model:
 
-1. **Planning Agent (The Brain):** A **LangGraph** state machine that analyzes high-level goals (e.g., "Restock Northeast Region") and delegates tasks. It has **no direct access** to the inventory database.
+1. **Planning Agent (The Brain):** A **LangGraph** state machine that analyzes high-level goals (e.g., "Restock Northeast Region") and delegates tasks. It has **no direct access** to the inventory database. It runs as an A2A-compliant web server.
 2. **Execution Agents (The Hands):** Ephemeral **CrewAI** swarms that receive specific tasks (e.g., "Order 500 Vintage Sci-Fi Mugs"). They connect to the **Mercari Product Vector Store** via **MCP**.
 3. **Governance:** **Google Agent Platform Agent Identity** ensures "Least Privilege"—only the Execution Agent can touch the database, while the Planning Agent handles strategy.
 
@@ -73,7 +66,7 @@ This demo showcases a **Multi-Agent System (MAS)** designed to handle complex lo
 * **Runtime:** Google Agent Engine
 * **Planning:** LangGraph (Python)
 * **Execution:** CrewAI (Python)
-* **Interoperability:** Agent-to-Agent (A2A) Protocol
+* **Interoperability:** Native A2A (Agent-to-Agent) Protocol via JSON-RPC
 * **Data Source:** Mercari Product Vector Store (via REST API)
 * **Tooling:** Model Context Protocol (MCP)
 * **Security:** Google Agent Platform Agent Identity
@@ -98,44 +91,59 @@ The **Planning Agent** requests a discontinued item. The **Execution Agent** fai
 
 ```mermaid
 graph TD
-    User[User / Dashboard] -->|Trigger Restock| PA[Planning Agent (LangGraph)]
+    User[ADK Agent / Dashboard] -->|A2A JSON-RPC 'message/send'| A2AServer[A2A Web Server (Uvicorn)]
     
     subgraph "Strategy Layer (High Privilege)"
-        PA -->|Plan & Delegate| A2A[A2A Protocol Interface]
+        A2AServer -->|Extract Intent| PA[Planning Agent (LangGraph)]
     end
     
     subgraph "Execution Layer (Restricted Scope)"
-        A2A -->|Task Packet| EA[Execution Agent (CrewAI)]
+        PA -->|Delegate Logistics| EA[Execution Agent (CrewAI)]
         EA -->|Query/Action| MCP[MCP Client]
     end
     
     subgraph "External Systems"
-        MCP -->|REST API| VS_API[Vector Search Service]
+        MCP -->|REST API /api/query| VS_API[Vector Search Service]
         VS_API -->|Semantic Search| VDB[(Mercari Vector Store)]
         MCP -->|Internal Mock| OMS[Mock Order System]
     end
+    
+    style PA fill:#e1f5fe,stroke:#01579b
+    style EA fill:#e8f5e9,stroke:#1b5e20
+    style MCP fill:#fff3e0,stroke:#e65100
+    style A2AServer fill:#f3e5f5,stroke:#4a148c
 ```
 
 ## Running the Demo
 
+### Testing the Full System (Native A2A)
+
+The demonstration relies on a LangGraph planner acting as an A2A server that triggers the CrewAI execution swarm.
+
+To test this flow, open **two** terminal windows:
+
+**Terminal 1: Start the A2A LangGraph Server**
+This runs the Uvicorn server, exposing the `.well-known/agent-card.json` and listening for tasks.
+```bash
+uv run agents/planner/a2a_server.py
+```
+
+**Terminal 2: Run the Mock A2A Client**
+This script acts as an external ADK agent. It sends a natural language prompt via an A2A JSON-RPC request to the server, triggering the entire LangGraph -> CrewAI -> MCP flow.
+```bash
+uv run agents/planner/test_a2a_client.py
+```
+
 ### Testing the MCP Server (Standalone)
 
-Before running the full agent workflow, you can test the **Mock Order Management System (OMS)** MCP server directly using the official Model Context Protocol Inspector.
+If you need to verify that the Mock Order Management System (OMS) is working independently of the agents, you can test it directly using the official Model Context Protocol Inspector.
 
 1. Open a new terminal window.
-2. Run the Inspector with the required environment variables and the `-q` (quiet) flag to prevent `uv` from polluting the JSON stream:
+2. Run the Inspector with the `-q` (quiet) flag to prevent `uv` from polluting the JSON stream:
 
     ```bash
-    GOOGLE_CLOUD_PROJECT=<YOUR_PROJECT_ID> npx @modelcontextprotocol/inspector uv run -q mock_oms_mcp/server.py
+    npx @modelcontextprotocol/inspector uv run -q mock_oms_mcp/server.py
     ```
 
 3. Open the provided `localhost:6274` URL in your browser.
 4. On the left sidebar, select tools like `check_budget` or `create_purchase_order`, provide arguments (e.g., `amount: 50`, `category: collectibles`), and click "Run Tool" to see the JSON response.
-
-### Running the Agent Execution Swarm
-
-Once you've verified the tools work, you can run the CrewAI worker agents. They will seamlessly connect to the MCP servers in the background and execute the logistics tasks autonomously.
-
-```bash
-uv run -q agents/executor/src/crew.py
-```
