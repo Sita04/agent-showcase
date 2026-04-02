@@ -150,7 +150,7 @@ If you need to verify that the Mock Order Management System (OMS) is working ind
 
 ### Running Unit & Integration Tests
 
-The project includes a pytest test suite that covers all components **without** requiring GCP credentials or external APIs. All external dependencies (LLMs, MCP servers, CrewAI) are mocked.
+The project includes a pytest test suite (37 tests) that covers all components **without** requiring GCP credentials or external APIs. All external dependencies (LLMs, MCP servers, CrewAI) are mocked.
 
 ```bash
 # Run all tests
@@ -162,3 +162,20 @@ uv run pytest tests/unit/ -v
 # Run only integration tests (mocked external services)
 uv run pytest tests/integration/ -v
 ```
+
+## Implementation & Test Status
+
+| Component | Source | Tests | Status |
+|-----------|--------|-------|--------|
+| **DefaultConfig** | `agents/config/default_config.py` | `tests/unit/test_default_config.py` | Tested |
+| **Mock OMS MCP Server** (`check_budget`, `create_purchase_order`) | `mock_oms_mcp/server.py` | `tests/unit/test_mock_oms.py` | Tested |
+| **Planner State** (`PlanState`) | `agents/planner/state.py` | `tests/integration/test_planner_graph.py` | Tested |
+| **Planner Prompts** (`AlertExtraction`, templates) | `agents/planner/prompts.py` | `tests/unit/test_planner_prompts.py` | Tested |
+| **Planner Graph** (`PlannerNodes`, `build_planner_graph`) | `agents/planner/graph.py` | `tests/integration/test_planner_graph.py` | Tested |
+| **A2A Server** (`PlannerAgentExecutor`, agent card, JSON-RPC) | `agents/planner/a2a_server.py` | `tests/integration/test_a2a_server.py` | Tested |
+| **Executor Prompts** (`AGENT_PROMPTS`, `TASK_PROMPTS`) | `agents/executor/src/prompts.py` | `tests/unit/test_executor_prompts.py` | Tested |
+| **Executor Tasks** (`ExecutorTasks`) | `agents/executor/src/tasks.py` | `tests/unit/test_executor_tasks.py` | Tested |
+| **Executor Agents** (`ExecutorAgents`) | `agents/executor/src/agents.py` | `tests/integration/test_executor_crew.py` | Tested |
+| **Executor Crew** (`LogisticsExecutionCrew`) | `agents/executor/src/crew.py` | `tests/integration/test_executor_crew.py` | Tested |
+| **MCP Tool Adapters** (`get_mcp_server`, `get_mock_oms_mcp`) | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
+| **A2A Test Client** | `agents/planner/test_a2a_client.py` | Manual (requires live server) | Manual |
