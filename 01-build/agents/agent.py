@@ -18,6 +18,14 @@ from agents.scout import create_scout_agent
 from agents.evaluator import shopping_evaluator
 from agents.schemas import CartItem, EvaluationReport, ShoppingPlan, CartItemOptions
 
+
+def _extract_text(input_val):
+    if isinstance(input_val, str):
+        return input_val
+    if hasattr(input_val, "parts"):
+        return "".join([p.text for p in input_val.parts if hasattr(p, "text") and p.text])
+    return str(input_val)
+
 async def _speak(ctx: Context, text: str, name_hash: str):
     """
     Helper function to bypass ADK's native UI rendering quirks.
@@ -57,7 +65,7 @@ def _parse_plan_from_state(ctx: Context, original_plan) -> ShoppingPlan | None:
 
 
 @node(rerun_on_resume=True)
-async def shopping_workflow(ctx: Context, node_input: str):
+async def shopping_workflow(ctx: Context, node_input):
     max_attempts = 2
     attempt = 0
     run_id = uuid.uuid4().hex[:6]
@@ -93,7 +101,7 @@ async def shopping_workflow(ctx: Context, node_input: str):
     # HITL STATE MACHINE: Budget Approval Phase
     # ----------------------------------------------------
     if ctx.state.get("awaiting_approval"):
-        user_reply = node_input.lower().strip()
+        user_reply = _extract_text(node_input).lower().strip()
         # Accept a much broader set of positive affirmations
         positive_affirmations = ["yes", "y", "sure", "ok", "okay", "approve", "approved", "looks good", "proceed", "go ahead"]
         if any(word in user_reply for word in positive_affirmations):
@@ -105,7 +113,7 @@ async def shopping_workflow(ctx: Context, node_input: str):
             # User rejected or provided feedback! Generate a new plan.
             ctx.state["awaiting_approval"] = False
             dynamic_planner = create_planner_agent(name=f"planner_user_ref__{run_id}")
-            plan = await ctx.run_node(dynamic_planner, f"User rejected plan with feedback: {node_input}. Update it.")
+            plan = await ctx.run_node(dynamic_planner, f"User rejected plan with feedback: {_extract_text(node_input)}. Update it.")
             plan = _parse_plan_from_state(ctx, plan)
             ctx.state["awaiting_approval"] = True
             
