@@ -150,7 +150,7 @@ If you need to verify that the Mock Order Management System (OMS) is working ind
 
 ### Running Unit & Integration Tests
 
-The project includes a pytest test suite (37 tests) that covers all components **without** requiring GCP credentials or external APIs. All external dependencies (LLMs, MCP servers, CrewAI) are mocked.
+The project includes a pytest test suite (38 tests) that covers all components. Unit and integration tests run **without** GCP credentials (all external dependencies are mocked). The E2E test runs against real services and auto-skips without credentials.
 
 ```bash
 # Run all tests
