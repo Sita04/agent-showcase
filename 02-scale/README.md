@@ -183,7 +183,7 @@ uv run pytest tests/e2e/ -v
 | **MCP Tool Adapters** (`get_mcp_server`, `get_mock_oms_mcp`) | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **A2A Test Client** | `agents/planner/test_a2a_client.py` | Manual (requires live server) | Manual |
 | **CUJ 1: Happy Path Restock** (E2E) | Full stack | `tests/e2e/test_cuj1_happy_path.py` | Tested |
-| **Agent Identity / Least Privilege** (CUJ 2) | — | — | TODO |
-| **Google Agent Engine Deployment** | — | — | TODO |
-| **Cross-Framework Error Handling / Re-planning** (CUJ 3) | — | — | TODO |
+| **Cross-Framework Error Handling / Re-planning** (CUJ 3) | — | — | TODO — next |
+| **Google Agent Engine Deployment** | — | — | TODO — after CUJ 3 |
+| **Agent Identity / Least Privilege** (CUJ 2) | — | — | TODO — blocked on Agent Engine |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
