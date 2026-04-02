@@ -179,3 +179,7 @@ uv run pytest tests/integration/ -v
 | **Executor Crew** (`LogisticsExecutionCrew`) | `agents/executor/src/crew.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **MCP Tool Adapters** (`get_mcp_server`, `get_mock_oms_mcp`) | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **A2A Test Client** | `agents/planner/test_a2a_client.py` | Manual (requires live server) | Manual |
+| **Agent Identity / Least Privilege** (CUJ 2) | — | — | TODO |
+| **Google Agent Engine Deployment** | — | — | TODO |
+| **Cross-Framework Error Handling / Re-planning** (CUJ 3) | — | — | TODO |
+| **ADK Agent / Dashboard Frontend** | — | — | TODO |
