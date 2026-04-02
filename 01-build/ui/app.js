@@ -27,6 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
             img.style.borderRadius = '14px';
             img.style.boxShadow = '0 4px 15px rgba(0,0,0,0.05)';
             msgDiv.appendChild(img);
+        } else if (sender === 'agent') {
+            // Render markdown for agent
+            msgDiv.innerHTML = typeof marked !== 'undefined' ? marked.parse(content) : content;
         } else {
             msgDiv.textContent = content;
         }
@@ -99,8 +102,13 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadBtnLabel.textContent = '📎';
 
         // Show typing indicator
-        appendMessage('Thinking...', 'agent');
+        let loadingText = 'Creating plan...';
+        if (text && text.toLowerCase().includes('yes')) {
+            loadingText = 'Dispatching Scouts for search...';
+        }
+        appendMessage(loadingText, 'agent');
         const loadingMsg = chatWindow.lastChild;
+        loadingMsg.classList.add('loading');
 
         try {
             const formData = new FormData();

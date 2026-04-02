@@ -29,7 +29,7 @@ body {
     border-radius: 28px;
     padding: 2.5rem;
     width: 90%;
-    max-width: 900px;
+    max-width: 1100px;
     height: 80vh;
     box-shadow: var(--shadow);
     display: flex;
@@ -79,6 +79,7 @@ h1 {
     line-height: 1.5;
     animation: msgIn 0.4s cubic-bezier(0.1, 0.8, 0.3, 1);
     font-size: 0.95rem;
+    white-space: pre-wrap;
 }
 
 .message.user {
@@ -197,7 +198,7 @@ input[type="text"]:focus {
 
 /* Step 5: Product Result Cards */
 .product-results {
-    max-width: 85% !important; /* Allow wider for grid */
+    max-width: 100% !important; /* Allow wider for grid */
     background: rgba(255, 255, 255, 0.7) !important;
     border: 1px solid rgba(255,255,255,0.4) !important;
     padding: 1.5rem !important;
@@ -214,7 +215,7 @@ input[type="text"]:focus {
 
 .product-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(3, 1fr) !important;
     gap: 1.2rem;
     margin-top: 0.5rem;
 }
@@ -237,7 +238,7 @@ input[type="text"]:focus {
 
 .product-img-wrapper {
     width: 100%;
-    height: 140px;
+    height: 450px;
     overflow: hidden;
     background: #f8f9fa;
 }
@@ -270,7 +271,7 @@ input[type="text"]:focus {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    height: 2.4rem; 
+    height: 2.4rem; /* Fixed height for name */
 }
 
 .product-meta {
@@ -309,6 +310,43 @@ input[type="text"]:focus {
 
 .product-link:hover {
     background: #2980b9;
+}
+
+/* Markdown Overrides for Chat Bubbles */
+.message h1, .message h2, .message h3, .message h4 {
+    margin: 0.5rem 0;
+    color: #2c3e50;
+    font-weight: 700;
+}
+.message h3 { font-size: 1.15rem; }
+.message h4 { font-size: 1rem; }
+
+.message ul, .message ol {
+    margin-left: 1.5rem;
+    margin-bottom: 0.8rem;
+    padding-left: 0;
+}
+
+.message li {
+    margin-bottom: 0.4rem;
+    line-height: 1.4;
+}
+
+.message p {
+    margin-bottom: 0.8rem;
+}
+.message p:last-child {
+    margin-bottom: 0;
+}
+
+.message.loading {
+    animation: typingThrob 1.5s infinite ease-in-out;
+    background: rgba(52, 152, 219, 0.12) !important;
+}
+
+@keyframes typingThrob {
+    0%, 100% { opacity: 0.5; transform: scale(0.98); }
+    50% { opacity: 1; transform: scale(1); }
 }
 
 @keyframes fadeIn {

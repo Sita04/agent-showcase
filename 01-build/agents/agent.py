@@ -37,28 +37,28 @@ async def _speak(ctx: Context, text: str, name_hash: str):
         name=f"sys_speaker_{name_hash}",
         model="gemini-2.5-flash",
         instruction=(
-            "You are a system presentation agent. Your ONLY job is to present the exact markdown text provided below. "
-            "You MUST ignore all previous conversation history and context that may have been passed to you. "
-            f"Do not add any conversational filler. Output the following verbatim:\n\n{text}"
+            "SYSTEM RULE: You are a pure text pipe. Output the EXACT text provided below verbatim. "
+            "Do NOT introduce yourself, do NOT output your internal name, and do NOT add any conversational filler. "
+            f"Output ALL of this text and ONLY this text:\n\n{text}"
         )
     )
     # Trigger the agent with a generic wake word so it evaluates cleanly
     await ctx.run_node(speaker, "Present the text dictated in your system instruction.") 
 
 def _parse_plan_from_state(ctx: Context, original_plan) -> ShoppingPlan | None:
-    if original_plan is not None:
-        return original_plan
-        
-    print("DEBUG: plan was None, falling back to ctx.state")
-    plan_data = ctx.state.get("shopping_plan")
-    if plan_data:
+    # Always normalize to ShoppingPlan if possible
+    plan_to_check = original_plan if original_plan is not None else ctx.state.get("shopping_plan")
+    
+    if plan_to_check:
         try:
-            if isinstance(plan_data, dict):
-                return ShoppingPlan.model_validate(plan_data)
+            if isinstance(plan_to_check, ShoppingPlan):
+                return plan_to_check
+            elif isinstance(plan_to_check, dict):
+                return ShoppingPlan.model_validate(plan_to_check)
             else:
-                return ShoppingPlan.model_validate_json(plan_data)
+                return ShoppingPlan.model_validate_json(str(plan_to_check))
         except Exception as e:
-            print(f"❌ Failed to parse plan from state: {e}")
+            print(f"❌ Failed to parse plan: {e}")
             
     return None
 
