@@ -147,3 +147,18 @@ If you need to verify that the Mock Order Management System (OMS) is working ind
 
 3. Open the provided `localhost:6274` URL in your browser.
 4. On the left sidebar, select tools like `check_budget` or `create_purchase_order`, provide arguments (e.g., `amount: 50`, `category: collectibles`), and click "Run Tool" to see the JSON response.
+
+### Running Unit & Integration Tests
+
+The project includes a pytest test suite that covers all components **without** requiring GCP credentials or external APIs. All external dependencies (LLMs, MCP servers, CrewAI) are mocked.
+
+```bash
+# Run all tests
+uv run pytest tests/ -v
+
+# Run only unit tests (fast, no mocking)
+uv run pytest tests/unit/ -v
+
+# Run only integration tests (mocked external services)
+uv run pytest tests/integration/ -v
+```
