@@ -200,7 +200,6 @@ Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the cur
 | **Session Management** | Enhanced session management | No session state across agent calls | No cross-agent session persistence |
 | **Agent Engine** | Core Runtime hosting both layers | Running locally | Not deployed to Agent Engine |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
-| **Vector Search 2.0** | Dedicated component on execution side | REST API to existing vector search service | Using v1 API |
 | **Multiple MCP connections** | MCP on both planning and execution sides | MCP only on execution side | Planning Agent has no MCP tools |
 
 ## Agent Engine Platform Features (GA at Next '26)
