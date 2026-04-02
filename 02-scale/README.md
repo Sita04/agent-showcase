@@ -188,6 +188,21 @@ uv run pytest tests/e2e/ -v
 | **Agent Identity / Least Privilege** (CUJ 2) | — | — | TODO — blocked on Agent Engine |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
 
+## Architecture Gap Analysis
+
+Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the current implementation.
+
+| Area | What's in the Diagram | Current State | Gap |
+|------|----------------------|---------------|-----|
+| **Execution Agents** | Supply Chain, Customer Support, Inventory agents | One generic logistics agent | Missing specialized agent swarm |
+| **External Systems** | ERP, CRM integrations on both sides | None | No ERP/CRM connectors |
+| **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | None — no auth boundaries enforced | Blocked on Agent Engine deployment |
+| **Session Management** | Enhanced session management | No session state across agent calls | No cross-agent session persistence |
+| **Agent Engine** | Core Runtime hosting both layers | Running locally | Not deployed to Agent Engine |
+| **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
+| **Vector Search 2.0** | Dedicated component on execution side | REST API to existing vector search service | Using v1 API |
+| **Multiple MCP connections** | MCP on both planning and execution sides | MCP only on execution side | Planning Agent has no MCP tools |
+
 ## Agent Engine Platform Features (GA at Next '26)
 
 Features available on the Google Agent Engine platform and their usage in this demo.
