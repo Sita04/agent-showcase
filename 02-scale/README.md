@@ -194,35 +194,35 @@ Features available on the Google Agent Engine platform and their usage in this d
 
 ### Runtime Enhancements
 
-| Feature | Availability | Used in Demo |
-|---------|-------------|--------------|
-| Performance: fast cold starts and provisioning | GA | Not yet |
-| Bring Your Own Container (BYOC) | GA | Not yet |
-| Versioning & traffic control | GA | Not yet |
-| LRO agents up to 7 days | GA | Not yet |
-| Bi-directional streaming | GA | Not yet |
-| Resource level IAM binding | GA | Not yet |
-| Accelerated onboarding | GA | Not yet |
-| Expanded language support: Python, Java, TS, Go | GA | Python |
-| 5k agents per project | GA | Not yet |
+| Feature | Availability | Used in Demo | Use Case in This Scenario |
+|---------|-------------|--------------|---------------------------|
+| Performance: fast cold starts and provisioning | GA | Not yet | Reduce latency when spinning up the Planning Agent on incoming inventory alerts |
+| Bring Your Own Container (BYOC) | GA | Not yet | Package LangGraph + CrewAI + MCP dependencies into a custom container for consistent deployment |
+| Versioning & traffic control | GA | Not yet | Canary-deploy updated planner prompts or executor logic, roll back if PO accuracy drops |
+| LRO agents up to 7 days | GA | Not yet | Handle large-scale restocking jobs that span multiple vendor negotiations over days |
+| Bi-directional streaming | GA | Not yet | Stream real-time progress updates (sourcing status, budget checks) back to the dashboard |
+| Resource level IAM binding | GA | Not yet | CUJ 2: restrict the Planning Agent's identity so it cannot access the vector store directly |
+| Accelerated onboarding | GA | Not yet | Faster initial setup when deploying the multi-agent system to new GCP projects |
+| Expanded language support: Python, Java, TS, Go | GA | Python | Both LangGraph planner and CrewAI executor are Python-based |
+| 5k agents per project | GA | Not yet | Scale to thousands of regional planner/executor agent pairs for global retail operations |
 
 ### Context Enhancements
 
-| Feature | Availability | Used in Demo |
-|---------|-------------|--------------|
-| Custom Session IDs | Preview at Next '26 | Not yet |
-| IngestEvents API for enhanced DevEx | Preview at Next '26 | Not yet |
-| Multi-region endpoint support (US and Europe) | Q2 | Not yet |
-| Configurable session fields | Q2 | Not yet |
-| Branching — time-travel for advanced debugging | Q2 | Not yet |
-| Context compaction to reduce tokens | Q2 | Not yet |
-| Framework-agnostic session support | Q2 | Not yet |
+| Feature | Availability | Used in Demo | Use Case in This Scenario |
+|---------|-------------|--------------|---------------------------|
+| Custom Session IDs | Preview at Next '26 | Not yet | Correlate a restock alert to its session across Planning Agent and Execution Agents |
+| IngestEvents API for enhanced DevEx | Preview at Next '26 | Not yet | Replay past procurement workflows to debug why a specific PO failed |
+| Multi-region endpoint support (US and Europe) | Q2 | Not yet | Serve regional planner agents close to each retail region (Northeast, Europe) |
+| Configurable session fields | Q2 | Not yet | Store region, budget, and delegation status as structured session metadata |
+| Branching — time-travel for advanced debugging | Q2 | Not yet | CUJ 3: branch at the delegation step to compare re-planning strategies side by side |
+| Context compaction to reduce tokens | Q2 | Not yet | Reduce token usage in multi-turn planning sessions with long execution results |
+| Framework-agnostic session support | Q2 | Not yet | Share session state between LangGraph (planner) and CrewAI (executor) seamlessly |
 
 ### Sandbox Enhancements
 
-| Feature | Availability | Used in Demo |
-|---------|-------------|--------------|
-| Code Execution | GA at Next '26 | Not yet |
-| BYOC custom browser tools / containers | GA at Next '26 | Not yet |
-| Computer Use Sandbox | GA at Next '26 | Not yet |
-| Snapshot API long-running workflows | Preview at Next '26 | Not yet |
+| Feature | Availability | Used in Demo | Use Case in This Scenario |
+|---------|-------------|--------------|---------------------------|
+| Code Execution | GA at Next '26 | Not yet | Let the planner dynamically compute optimal order quantities or budget splits |
+| BYOC custom browser tools / containers | GA at Next '26 | Not yet | Run the MCP vector search adapter in an isolated container with network controls |
+| Computer Use Sandbox | GA at Next '26 | Not yet | Automate interactions with vendor web portals that lack APIs |
+| Snapshot API long-running workflows | Preview at Next '26 | Not yet | Checkpoint a multi-step procurement workflow so it can resume after interruption |
