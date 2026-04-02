@@ -25,7 +25,7 @@ See [architecture.md](./architecture.md) for a visual diagram of the execution f
 ## Project Structure
 
 ```text
-shopping_squad/
+01_build/
 ├── agents/             # ADK Node logic and logic orchestration
 │   ├── agent.py        # The root sequential workflow and HitL state machine
 │   ├── evaluator.py    # Python evaluation and budget constraint gating
@@ -44,7 +44,7 @@ shopping_squad/
    ```bash
    pip install "google-adk[extensions]" mcp httpx
    ```
-2. Start the ADK Web UI from the squad root:
+2. Start the ADK Web UI from the squad root (01_build/agents folder):
    ```bash
    adk web
    ```

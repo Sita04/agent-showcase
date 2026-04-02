@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personalized Shopping Squad</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap">
+</head>
+<body>
+    <div class="glass-container">
+        <header>
+            <div>
+                <h1>Shopping Squad</h1>
+                <div class="subtitle">AI-Powered Hyper-Personalized Curation</div>
+            </div>
+            <div class="status-badge" id="bot-status">⚡ Online</div>
+        </header>
+
+        <div class="chat-window" id="chat-window">
+            <div class="message agent">
+                👋 Hello! I'm your Personal Shopper. Describe what you are looking for (e.g., "Camping trip gear for 2 people, budget $500") or upload an image of a style you like!
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="input-wrapper">
+                <input type="file" id="image-upload" accept="image/*" style="display: none;">
+                <input type="text" id="user-input" placeholder="Type your request here...">
+                <label for="image-upload" class="upload-btn">📎</label>
+                <button class="send-btn" id="send-btn">Search</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
