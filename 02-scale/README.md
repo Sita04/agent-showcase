@@ -187,3 +187,42 @@ uv run pytest tests/e2e/ -v
 | **Google Agent Engine Deployment** | — | — | TODO — after CUJ 3 |
 | **Agent Identity / Least Privilege** (CUJ 2) | — | — | TODO — blocked on Agent Engine |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
+
+## Agent Engine Platform Features (GA at Next '26)
+
+Features available on the Google Agent Engine platform and their usage in this demo.
+
+### Runtime Enhancements
+
+| Feature | Availability | Used in Demo |
+|---------|-------------|--------------|
+| Performance: fast cold starts and provisioning | GA | Not yet |
+| Bring Your Own Container (BYOC) | GA | Not yet |
+| Versioning & traffic control | GA | Not yet |
+| LRO agents up to 7 days | GA | Not yet |
+| Bi-directional streaming | GA | Not yet |
+| Resource level IAM binding | GA | Not yet |
+| Accelerated onboarding | GA | Not yet |
+| Expanded language support: Python, Java, TS, Go | GA | Python |
+| 5k agents per project | GA | Not yet |
+
+### Context Enhancements
+
+| Feature | Availability | Used in Demo |
+|---------|-------------|--------------|
+| Custom Session IDs | Preview at Next '26 | Not yet |
+| IngestEvents API for enhanced DevEx | Preview at Next '26 | Not yet |
+| Multi-region endpoint support (US and Europe) | Q2 | Not yet |
+| Configurable session fields | Q2 | Not yet |
+| Branching — time-travel for advanced debugging | Q2 | Not yet |
+| Context compaction to reduce tokens | Q2 | Not yet |
+| Framework-agnostic session support | Q2 | Not yet |
+
+### Sandbox Enhancements
+
+| Feature | Availability | Used in Demo |
+|---------|-------------|--------------|
+| Code Execution | GA at Next '26 | Not yet |
+| BYOC custom browser tools / containers | GA at Next '26 | Not yet |
+| Computer Use Sandbox | GA at Next '26 | Not yet |
+| Snapshot API long-running workflows | Preview at Next '26 | Not yet |
