@@ -18,6 +18,14 @@ from agents.scout import create_scout_agent
 from agents.evaluator import shopping_evaluator
 from agents.schemas import CartItem, EvaluationReport, ShoppingPlan, CartItemOptions
 
+
+def _extract_text(input_val):
+    if isinstance(input_val, str):
+        return input_val
+    if hasattr(input_val, "parts"):
+        return "".join([p.text for p in input_val.parts if hasattr(p, "text") and p.text])
+    return str(input_val)
+
 async def _speak(ctx: Context, text: str, name_hash: str):
     """
     Helper function to bypass ADK's native UI rendering quirks.
@@ -29,35 +37,35 @@ async def _speak(ctx: Context, text: str, name_hash: str):
         name=f"sys_speaker_{name_hash}",
         model="gemini-2.5-flash",
         instruction=(
-            "You are a system presentation agent. Your ONLY job is to present the exact markdown text provided below. "
-            "You MUST ignore all previous conversation history and context that may have been passed to you. "
-            f"Do not add any conversational filler. Output the following verbatim:\n\n{text}"
+            "SYSTEM RULE: You are a pure text pipe. Output the EXACT text provided below verbatim. "
+            "Do NOT introduce yourself, do NOT output your internal name, and do NOT add any conversational filler. "
+            f"Output ALL of this text and ONLY this text:\n\n{text}"
         )
     )
     # Trigger the agent with a generic wake word so it evaluates cleanly
     await ctx.run_node(speaker, "Present the text dictated in your system instruction.") 
 
 def _parse_plan_from_state(ctx: Context, original_plan) -> ShoppingPlan | None:
-    if original_plan is not None:
-        return original_plan
-        
-    print("DEBUG: plan was None, falling back to ctx.state")
-    plan_data = ctx.state.get("shopping_plan")
-    if plan_data:
+    # Always normalize to ShoppingPlan if possible
+    plan_to_check = original_plan if original_plan is not None else ctx.state.get("shopping_plan")
+    
+    if plan_to_check:
         try:
-            if isinstance(plan_data, dict):
-                return ShoppingPlan.model_validate(plan_data)
+            if isinstance(plan_to_check, ShoppingPlan):
+                return plan_to_check
+            elif isinstance(plan_to_check, dict):
+                return ShoppingPlan.model_validate(plan_to_check)
             else:
-                return ShoppingPlan.model_validate_json(plan_data)
+                return ShoppingPlan.model_validate_json(str(plan_to_check))
         except Exception as e:
-            print(f"❌ Failed to parse plan from state: {e}")
+            print(f"❌ Failed to parse plan: {e}")
             
     return None
 
 
 
 @node(rerun_on_resume=True)
-async def shopping_workflow(ctx: Context, node_input: str):
+async def shopping_workflow(ctx: Context, node_input):
     max_attempts = 2
     attempt = 0
     run_id = uuid.uuid4().hex[:6]
@@ -93,7 +101,7 @@ async def shopping_workflow(ctx: Context, node_input: str):
     # HITL STATE MACHINE: Budget Approval Phase
     # ----------------------------------------------------
     if ctx.state.get("awaiting_approval"):
-        user_reply = node_input.lower().strip()
+        user_reply = _extract_text(node_input).lower().strip()
         # Accept a much broader set of positive affirmations
         positive_affirmations = ["yes", "y", "sure", "ok", "okay", "approve", "approved", "looks good", "proceed", "go ahead"]
         if any(word in user_reply for word in positive_affirmations):
@@ -105,7 +113,7 @@ async def shopping_workflow(ctx: Context, node_input: str):
             # User rejected or provided feedback! Generate a new plan.
             ctx.state["awaiting_approval"] = False
             dynamic_planner = create_planner_agent(name=f"planner_user_ref__{run_id}")
-            plan = await ctx.run_node(dynamic_planner, f"User rejected plan with feedback: {node_input}. Update it.")
+            plan = await ctx.run_node(dynamic_planner, f"User rejected plan with feedback: {_extract_text(node_input)}. Update it.")
             plan = _parse_plan_from_state(ctx, plan)
             ctx.state["awaiting_approval"] = True
             
