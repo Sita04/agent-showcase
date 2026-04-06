@@ -18,7 +18,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from crewai import Agent, LLM
-from src.prompts import AGENT_PROMPTS
+from config.prompts import EXECUTOR_AGENT_PROMPTS
 from config.default_config import config
 
 class ExecutorAgents:
@@ -36,7 +36,7 @@ class ExecutorAgents:
         )
 
     def sourcing_specialist(self, mcp_tools):
-        prompts = AGENT_PROMPTS["sourcing_specialist"]
+        prompts = EXECUTOR_AGENT_PROMPTS["sourcing_specialist"]
         return Agent(
             role=prompts["role"],
             goal=prompts["goal"],
@@ -51,7 +51,7 @@ class ExecutorAgents:
         )
 
     def procurement_officer(self, mcp_tools):
-        prompts = AGENT_PROMPTS["procurement_officer"]
+        prompts = EXECUTOR_AGENT_PROMPTS["procurement_officer"]
         return Agent(
             role=prompts["role"],
             goal=prompts["goal"],

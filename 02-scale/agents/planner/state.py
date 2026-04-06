@@ -13,6 +13,14 @@
 # limitations under the License.
 
 from typing import TypedDict, Dict, Any, Optional
+from pydantic import BaseModel, Field
+
+class AlertExtraction(BaseModel):
+    """Schema for extracting details from an inventory alert."""
+    region: str = Field(description="The geographic region mentioned in the alert, e.g., 'Northeast'.")
+    item_description: str = Field(description="The specific item or category to restock.")
+    quantity_needed: int = Field(description="The number of units required. Default to 500 if not specified.", default=500)
+    max_budget: float = Field(description="The maximum allowed budget per unit. Default to 50.0 if not specified.", default=50.0)
 
 class PlanState(TypedDict, total=False):
     """

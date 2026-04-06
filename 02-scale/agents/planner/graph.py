@@ -19,8 +19,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
-from state import PlanState
-from prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT, AlertExtraction
+from state import PlanState, AlertExtraction
+from agents.config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT
 from agents.executor.src.crew import LogisticsExecutionCrew
 from agents.config.default_config import config
 import logging

@@ -12,14 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
 from crewai import Task
-from src.prompts import TASK_PROMPTS
+from config.prompts import EXECUTOR_TASK_PROMPTS
 
 class ExecutorTasks:
     """Defines the tasks for the Execution Layer."""
 
     def sourcing_task(self, agent, item_description, max_budget):
-        prompts = TASK_PROMPTS["sourcing"]
+        prompts = EXECUTOR_TASK_PROMPTS["sourcing"]
         return Task(
             description=prompts["description"].format(
                 item_description=item_description, 
@@ -30,7 +35,7 @@ class ExecutorTasks:
         )
 
     def procurement_task(self, agent, quantity):
-        prompts = TASK_PROMPTS["procurement"]
+        prompts = EXECUTOR_TASK_PROMPTS["procurement"]
         return Task(
             description=prompts["description"].format(
                 quantity=quantity
