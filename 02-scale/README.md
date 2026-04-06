@@ -124,12 +124,14 @@ To test this flow, open **two** terminal windows:
 
 **Terminal 1: Start the A2A LangGraph Server**
 This runs the Uvicorn server, exposing the `.well-known/agent-card.json` and listening for tasks.
+
 ```bash
 uv run agents/planner/a2a_server.py
 ```
 
 **Terminal 2: Run the Mock A2A Client**
 This script acts as an external ADK agent. It sends a natural language prompt via an A2A JSON-RPC request to the server, triggering the entire LangGraph -> CrewAI -> MCP flow.
+
 ```bash
 uv run agents/planner/test_a2a_client.py
 ```
