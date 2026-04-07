@@ -14,8 +14,8 @@
 
 """E2E test for CUJ 2: The "Identity Shield" (Security).
 
-Verifies that the Control Room agent correctly handles a security block
-from the A2A server without retrying.
+Verifies that the ADK 2.0 Control Room correctly handles a security block
+from the A2A server without triggering the re-planner.
 
 Usage:
     uv run pytest tests/e2e/test_cuj2_identity_shield.py -v
@@ -24,13 +24,13 @@ Usage:
 import os
 
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock
 
 from agents.control_room.agent import ControlRoomAgent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-# Skip if no real GCP project is configured (LlmAgent requires Gemini API).
+# Skip if no real GCP project is configured (replanner LLM requires it).
 _project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 pytestmark = pytest.mark.skipif(
     not _project or _project == "test-project-id",
@@ -42,7 +42,8 @@ pytestmark = pytest.mark.skipif(
 async def test_identity_shield_via_control_room():
     """CUJ 2: A security violation from the A2A server is treated as terminal.
 
-    The Control Room must NOT retry and must report a SECURITY BLOCK.
+    The Control Room must NOT invoke the re-planner agent and must return
+    immediately with a SECURITY BLOCK outcome.
     """
 
     runner = InMemoryRunner(
@@ -59,53 +60,48 @@ async def test_identity_shield_via_control_room():
         role="user", parts=[types.Part.from_text(text=malicious_prompt)]
     )
 
-    security_report = (
-        "SECURITY VIOLATION: The request to delete the vector index "
-        "was blocked. Permission denied by Identity Shield. "
-        "The Planning Agent's service account lacks the required "
-        "aiplatform.indexes.delete IAM permission."
-    )
+    with patch("httpx.AsyncClient.post") as mock_post:
+        # Simulate the A2A server returning a security violation report
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "result": {
+                "artifacts": [
+                    {
+                        "parts": [
+                            {
+                                "text": (
+                                    "SECURITY VIOLATION: The request to delete the vector index "
+                                    "was blocked. Permission denied by Identity Shield. "
+                                    "The Planning Agent's service account lacks the required "
+                                    "aiplatform.indexes.delete IAM permission."
+                                )
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        mock_post.return_value = mock_response
 
-    with patch("agents.control_room.agent.httpx.AsyncClient") as MockClient:
-        mock_post = AsyncMock(return_value=MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={
-                "result": {
-                    "artifacts": [{"parts": [{"text": security_report}]}]
-                }
-            }),
-        ))
-        MockClient.return_value.__aenter__ = AsyncMock(
-            return_value=MagicMock(post=mock_post)
-        )
-        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        events = []
+        # Execute the workflow
         async for event in runner.run_async(
             user_id="admin",
             session_id=session.id,
             new_message=content,
         ):
-            events.append(event)
+            pass  # Exhaust generator
 
-        # Security block should be terminal — the tool should only be called once
-        assert mock_post.call_count == 1, (
-            f"Expected exactly 1 A2A call (no retry), got {mock_post.call_count}"
-        )
-
-        # Check that the agent's response mentions the security block
         final_session = await runner.session_service.get_session(
             app_name="test_app", user_id="admin", session_id=session.id
         )
 
-        # Get all agent text from the session
-        agent_text = ""
-        for msg in final_session.events:
-            if hasattr(msg, "content") and msg.content:
-                for part in msg.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        agent_text += part.text + "\n"
+        outcome = final_session.state.get("final_outcome", "")
 
-        assert "security" in agent_text.lower() or "block" in agent_text.lower(), (
-            f"Expected security-related text in agent response, got: {agent_text[:500]}"
+        # Security block should be terminal — no retry
+        assert mock_post.call_count == 1, (
+            f"Expected exactly 1 A2A call (no retry), got {mock_post.call_count}"
+        )
+        assert "SECURITY BLOCK" in outcome, (
+            f"Expected 'SECURITY BLOCK' in outcome, got: {outcome}"
         )
