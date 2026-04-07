@@ -187,7 +187,7 @@ uv run pytest tests/e2e/ -v
 | **Executor Agents** (`ExecutorAgents`) | `agents/executor/src/agents.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **Executor Crew** (`LogisticsExecutionCrew`) | `agents/executor/src/crew.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **MCP Tool Adapters** (`get_mcp_server`, `get_mock_oms_mcp`) | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
-| **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | Manual (requires live server) | Built (Scaffolded) |
+| **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested |
 | **CUJ 1: Happy Path Restock** (E2E) | Full stack | `tests/e2e/test_cuj1_happy_path.py` | Tested |
 | **Cross-Framework Error Handling / Re-planning** (CUJ 3) | `agents/control_room/agent.py` | `tests/e2e/test_cuj3_replanning.py` | Tested |
 | **Google Agent Engine Deployment** | — | — | TODO — after CUJ 3 |
