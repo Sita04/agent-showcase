@@ -78,6 +78,13 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                             if len(parts) > 0 and "text" in parts[0]:
                                 report = parts[0]["text"]
                         
+                        # CUJ 2: Detect security blocks (terminal — no replanning)
+                        security_keywords = ["permission denied", "security violation", "blocked by iam", "identity shield"]
+                        if any(kw in report.lower() for kw in security_keywords):
+                            print(f"\n🛡️ [Control Room] Security block detected. Not retrying.")
+                            ctx.state["final_outcome"] = f"SECURITY BLOCK: {report}"
+                            return {"status": "Blocked", "report": report}
+
                         # Evaluate outcome
                         if "not found" in report.lower() or "discontinued" in report.lower() or "no inventory" in report.lower():
                             is_success = False
@@ -125,3 +132,6 @@ ControlRoomAgent = Workflow(
     name="ControlRoomAgent",
     edges=[("START", control_room_orchestrator)],
 )
+
+# Alias for `adk deploy agent_engine` which expects `root_agent`
+root_agent = ControlRoomAgent

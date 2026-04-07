@@ -21,6 +21,10 @@ class AlertExtraction(BaseModel):
     item_description: str = Field(description="The specific item or category to restock.")
     quantity_needed: int = Field(description="The number of units required. Default to 500 if not specified.", default=500)
     max_budget: float = Field(description="The maximum allowed budget per unit. Default to 50.0 if not specified.", default=50.0)
+    is_destructive: bool = Field(
+        description="Whether the alert requests a destructive action (delete, drop, destroy, modify schema, wipe) rather than a legitimate procurement task.",
+        default=False,
+    )
 
 class PlanState(TypedDict, total=False):
     """
@@ -38,3 +42,7 @@ class PlanState(TypedDict, total=False):
     
     execution_result: Optional[str] # The raw output from the CrewAI worker
     final_report: Optional[str]     # The final synthesized report for the dashboard
+
+    # CUJ 2: Identity Shield fields
+    malicious_intent: Optional[bool]   # Whether the request was classified as destructive
+    security_violation: Optional[str]  # IAM rejection details if a forbidden action was attempted

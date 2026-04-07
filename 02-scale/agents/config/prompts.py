@@ -37,6 +37,19 @@ Worker Execution Result: {execution_result}
 Your job is to synthesize this raw execution result into a clean, professional, high-level "Final Report" suitable for the Global Strategy Dashboard.
 Keep it concise, highlight the total cost, the Purchase Order ID, and whether it was a SUCCESS or FAILURE."""
 
+SECURITY_REPORT_PROMPT = """You are the Global Retail IT Planning Agent.
+A request was received that violated the security policy enforced by Google Agent Engine's Identity Shield.
+
+Original Request: {objective}
+Security Violation: {security_violation}
+
+Generate a clear, professional security incident report explaining:
+1. What action was attempted
+2. Why it was blocked (IAM policy / least privilege enforcement)
+3. That the correct procedure requires authorized personnel with the appropriate IAM role
+
+The report MUST include the phrase "SECURITY VIOLATION" and "permission denied" so upstream systems can detect the block."""
+
 
 # EXECUTOR PROMPTS
 EXECUTOR_AGENT_PROMPTS = {

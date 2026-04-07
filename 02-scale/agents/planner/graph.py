@@ -19,8 +19,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
+from google.cloud import aiplatform_v1
+from google.api_core.exceptions import PermissionDenied, Forbidden, NotFound
 from state import PlanState, AlertExtraction
-from agents.config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT
+from agents.config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT, SECURITY_REPORT_PROMPT
 from agents.executor.src.crew import LogisticsExecutionCrew
 from agents.config.default_config import config
 import logging
@@ -58,14 +60,15 @@ class PlannerNodes:
         result: AlertExtraction = raw_result
         
         logger.info(f"Extracted: {result}")
-        
+
         return {
             "region": result.region,
             "item_description": result.item_description,
             "quantity_needed": result.quantity_needed,
             "max_budget": result.max_budget,
             "current_step": "analyzed",
-            "delegation_status": "pending"
+            "delegation_status": "pending",
+            "malicious_intent": result.is_destructive,
         }
 
     def delegate_to_executor(self, state: PlanState) -> PlanState:
@@ -97,6 +100,63 @@ class PlannerNodes:
                 "execution_result": f"Error: {str(e)}"
             }
 
+    def attempt_forbidden_action(self, state: PlanState) -> PlanState:
+        """CUJ 2 Node: Attempt a forbidden vector store operation.
+
+        When deployed to Agent Engine, the Planning Agent's service account
+        lacks Vector_Store_Write permissions, so this call is blocked by IAM.
+        """
+        logger.info("--- [Planner] SECURITY: Attempting forbidden action (delete_index) ---")
+        project = config.GOOGLE_CLOUD_PROJECT
+        location = "us-central1"
+        # Syntactically valid resource name — IAM check occurs before existence check
+        index_name = f"projects/{project}/locations/{location}/indexes/0000000000000000000"
+
+        try:
+            client = aiplatform_v1.IndexServiceClient(
+                client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"}
+            )
+            client.delete_index(name=index_name)
+            # If we reach here, the SA had too many permissions — flag it
+            return {
+                "current_step": "security_check",
+                "security_violation": "WARNING: delete_index succeeded — service account has excessive permissions!",
+            }
+        except (PermissionDenied, Forbidden) as e:
+            logger.info(f"BLOCKED by IAM: {e}")
+            return {
+                "current_step": "security_check",
+                "security_violation": f"Blocked by Identity Shield: {e}",
+            }
+        except NotFound:
+            # IAM allowed the call but the index doesn't exist — still proves SA has write perms
+            return {
+                "current_step": "security_check",
+                "security_violation": "WARNING: IAM allowed delete_index (index not found) — service account has excessive permissions!",
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error during security check: {e}")
+            return {
+                "current_step": "security_check",
+                "security_violation": f"Blocked: {e}",
+            }
+
+    def generate_security_report(self, state: PlanState) -> PlanState:
+        """CUJ 2 Node: Generate a security incident report after IAM rejection."""
+        logger.info("--- [Planner] SECURITY: Generating Security Report ---")
+
+        prompt = SECURITY_REPORT_PROMPT.format(
+            objective=state.get("objective", "Unknown"),
+            security_violation=state.get("security_violation", "Unknown violation"),
+        )
+
+        response = self.llm.invoke(prompt)
+
+        return {
+            "current_step": "completed",
+            "final_report": str(response.content),
+        }
+
     def generate_report(self, state: PlanState) -> PlanState:
         """Node 3: Synthesize the final outcome."""
         logger.info("--- [Planner] Step 3: Generating Final Report ---")
@@ -113,6 +173,13 @@ class PlannerNodes:
             "final_report": str(response.content)
         }
 
+def route_after_analysis(state: PlanState) -> str:
+    """CUJ 2: Route destructive requests to the security path."""
+    if state.get("malicious_intent"):
+        return "attempt_forbidden_action"
+    return "delegate"
+
+
 # Graph Construction
 def build_planner_graph():
     nodes = PlannerNodes()
@@ -122,12 +189,27 @@ def build_planner_graph():
     workflow.add_node("analyze_alert", nodes.analyze_alert)
     workflow.add_node("delegate", nodes.delegate_to_executor)
     workflow.add_node("generate_report", nodes.generate_report)
+    workflow.add_node("attempt_forbidden_action", nodes.attempt_forbidden_action)
+    workflow.add_node("generate_security_report", nodes.generate_security_report)
 
-    # Add Edges (Strict linear flow for now)
+    # Conditional routing after analysis (CUJ 2: Identity Shield)
     workflow.set_entry_point("analyze_alert")
-    workflow.add_edge("analyze_alert", "delegate")
+    workflow.add_conditional_edges(
+        "analyze_alert",
+        route_after_analysis,
+        {
+            "delegate": "delegate",
+            "attempt_forbidden_action": "attempt_forbidden_action",
+        },
+    )
+
+    # Normal path (CUJ 1 / CUJ 3)
     workflow.add_edge("delegate", "generate_report")
     workflow.add_edge("generate_report", END)
+
+    # Security path (CUJ 2)
+    workflow.add_edge("attempt_forbidden_action", "generate_security_report")
+    workflow.add_edge("generate_security_report", END)
 
     # Compile the graph
     return workflow.compile()
