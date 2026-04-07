@@ -244,7 +244,7 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 2. **Deployed the Planning Agent** (LangGraph) to Agent Engine via `adk deploy agent_engine` (`scripts/deploy_to_agent_engine.py`)
    * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/7579541130434314240`
    * Bound to `planning-agent-sa` via `client.agent_engines.update()`
-3. **Control Room Agent** runs locally — ADK `Workflow` objects don't serialize for Agent Engine source-based deployment. This is architecturally fine: the identity boundary is enforced on the Planning Agent side.
+3. **Control Room Agent** — **BLOCKED.** ADK `Workflow` (`google.adk.workflow`) is an alpha feature in `google-adk 2.0.0a2` that cannot be deployed via Agent Engine's source-based deployment (`adk deploy agent_engine`). Agent Engine does not support BYOC (custom container) deployment. The Control Room runs locally and calls the Planning Agent via A2A. The identity boundary is still enforced on the Planning Agent side.
 
 ### Phase 2: Enforce IAM Boundaries (DONE)
 
@@ -281,7 +281,7 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 * [x] IAM roles bound (`aiplatform.user` for planning, `aiplatform.editor` for execution)
 * [x] Planning Agent deployed to Agent Engine (`reasoningEngines/7579541130434314240`)
 * [x] Planning Agent SA bound (`planning-agent-sa` — read-only, no index delete)
-* [ ] Deploy Control Room to Agent Engine (Workflow serialization issue — runs locally for now)
+* [ ] **BLOCKED:** Deploy Control Room to Agent Engine — ADK `Workflow` is an alpha feature (`google-adk 2.0.0a2`) that doesn't serialize for Agent Engine's source-based deployment. Agent Engine has no BYOC (custom container) support. Options: (a) refactor to `LlmAgent` (loses Workflow demo), (b) deploy to Cloud Run instead, or (c) wait for Agent Engine BYOC support.
 * [ ] IAM deny policy (optional — requires `iam.denypolicies.create` permission)
 
 ## Architecture Gap Analysis
