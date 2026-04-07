@@ -33,16 +33,17 @@ def create_scout_agent(query: str, budget: float, name="product_scout_node"):
            Example: `{{"price": {{"$lte": {budget}}}}}` 
         4. Select exactly 3 different options that are strictly under the Maximum Budget.
         5. CRITICAL UX RULE: You must present your findings to the user in a friendly, beautiful Markdown format. Give each discovered item a bold title, format its price in green (`<span style='color:green'>$X</span>`), and add a 1-sentence description. DO NOT output huge raw JSON blocks to the user.
-        6. At the VERY END of your message, you MUST append your structured JSON data secretly inside an HTML comment box. The frontend UI will hide the comment, so the user won't see the ugly code!
+        6. At the VERY END of your message, you MUST append your structured JSON data secretly inside an HTML comment box. The frontend UI will hide the comment, so the user won't see the ugly code! Include the 'Score' from the search tool as the 'similarity' value!
         Format EXACTLY like this:
         <!--[JSON_PAYLOAD]
         {{
-           "category": "{query.split(' ')[0]}",
+           "category": "CategoryName",
            "options": [
-              {{"id": "...", "name": "...", "price": 0.0, "img_url": "...", "url": "...", "description": "..."}}
+              {{"id": "...", "name": "...", "price": 25.0, "img_url": "...", "url": "...", "description": "...", "similarity": 0.95}}
            ]
         }}
         [/JSON_PAYLOAD]-->
+        CRITICAL: DO NOT use placeholder values like "0.0" or "..." in the JSON! Fill them in with the REAL prices, IDs, and similarity scores from your search!
         """,
         tools=[
             McpToolset(

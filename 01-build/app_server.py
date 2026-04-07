@@ -66,6 +66,7 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
     
     reply_text = ""
     # Run the workflow and collect outputs
+    success_triggered = False
     async for event in _runner.run_async(
         session_id=session_id,
         user_id=user_id,
@@ -78,6 +79,9 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
         output_data = getattr(event, 'output', None)
         node_name = getattr(event, 'node_name', '')
         
+        if node_name.startswith("sys_speaker_success_"):
+            success_triggered = True
+            
         if node_name.startswith("sys_speaker_") and isinstance(output_data, str):
             reply_text += output_data
         elif event.content:
@@ -93,7 +97,11 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
         user_id=user_id,
         session_id=session_id
     )
-    found_options = session.state.get("found_options", [])
+    
+    # Only attach product cards if the search JUST completed successfully!
+    found_options = []
+    if success_triggered:
+        found_options = session.state.get("found_options", [])
 
     response_data = {"status": "success"}
     if found_options:
