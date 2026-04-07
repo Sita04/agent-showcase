@@ -2,11 +2,8 @@
 
 import pytest
 from pydantic import ValidationError
-from agents.planner.prompts import (
-    AlertExtraction,
-    PLANNER_SYSTEM_PROMPT,
-    REPORT_GENERATOR_PROMPT,
-)
+from agents.planner.state import AlertExtraction
+from agents.config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT
 
 
 class TestAlertExtraction:

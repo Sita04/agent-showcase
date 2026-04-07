@@ -1,13 +1,13 @@
 """Tests for ExecutorTasks task creation."""
 
 from unittest.mock import patch, MagicMock
-from agents.executor.src.prompts import TASK_PROMPTS
+from agents.config.prompts import EXECUTOR_TASK_PROMPTS
 
 
 class TestExecutorTasks:
     def test_sourcing_task_has_correct_description(self):
         """Verify the sourcing task formats prompts correctly."""
-        prompts = TASK_PROMPTS["sourcing"]
+        prompts = EXECUTOR_TASK_PROMPTS["sourcing"]
         rendered = prompts["description"].format(
             item_description="Vintage Sci-Fi Mugs",
             max_budget=50.0,
@@ -17,7 +17,7 @@ class TestExecutorTasks:
 
     def test_procurement_task_has_correct_description(self):
         """Verify the procurement task formats prompts correctly."""
-        prompts = TASK_PROMPTS["procurement"]
+        prompts = EXECUTOR_TASK_PROMPTS["procurement"]
         rendered = prompts["description"].format(quantity=10)
         assert "10" in rendered
 

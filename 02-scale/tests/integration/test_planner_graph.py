@@ -3,11 +3,10 @@
 from unittest.mock import patch, MagicMock
 import pytest
 
-# graph.py uses bare `from prompts import AlertExtraction`, which resolves to the
-# `prompts` module (not `agents.planner.prompts`). We must use the same class for
+# graph.py uses bare `from state import AlertExtraction`, which resolves via
+# sys.path to agents/planner/state.py. We must use the same class for
 # isinstance checks in graph.py to pass.
-from prompts import AlertExtraction
-from state import PlanState
+from state import AlertExtraction, PlanState
 
 
 @pytest.fixture
