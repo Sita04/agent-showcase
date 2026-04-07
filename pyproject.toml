@@ -11,7 +11,9 @@ authors = [
     { name = "Vinesh Prasanna M", email = "vineshpm@google.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "google-adk>=1.28.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.8.13,<0.9.0"]

@@ -94,8 +94,7 @@ class LogisticsExecutionCrew:
                 process=Process.sequential, # Run sequentially: Source --> Procure
                 verbose=True,
                 memory=False,
-                planning=True,
-                planning_llm=LLM(model=config.PLANNING_MODEL),
+                planning=False,  # Disabled due to JSON parsing bugs in gemini-2.5-flash
                 embedder=vertex_embedder # type: ignore
             )
 

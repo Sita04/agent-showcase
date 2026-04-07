@@ -91,7 +91,11 @@ The **Planning Agent** requests a discontinued item. The **Execution Agent** fai
 
 ```mermaid
 graph TD
-    User[ADK Agent / Dashboard] -->|A2A JSON-RPC 'message/send'| A2AServer[A2A Web Server (Uvicorn)]
+    User[ADK Agent / Dashboard] --> CR[ADK 2.0 Control Room Agent]
+    
+    subgraph "Global Coordination (ADK 2.0)"
+        CR -->|A2A JSON-RPC 'message/send'| A2AServer[A2A Web Server (Uvicorn)]
+    end
     
     subgraph "Strategy Layer (High Privilege)"
         A2AServer -->|Extract Intent| PA[Planning Agent (LangGraph)]
@@ -116,9 +120,9 @@ graph TD
 
 ## Running the Demo
 
-### Testing the Full System (Native A2A)
+### Testing the Full System (Native A2A with ADK 2.0)
 
-The demonstration relies on a LangGraph planner acting as an A2A server that triggers the CrewAI execution swarm.
+The demonstration relies on a **Google ADK 2.0 Control Room Agent** orchestrating a LangGraph planner via the A2A protocol, which in turn triggers the CrewAI execution swarm.
 
 To test this flow, open **two** terminal windows:
 
@@ -129,11 +133,11 @@ This runs the Uvicorn server, exposing the `.well-known/agent-card.json` and lis
 uv run agents/planner/a2a_server.py
 ```
 
-**Terminal 2: Run the Mock A2A Client**
-This script acts as an external ADK agent. It sends a natural language prompt via an A2A JSON-RPC request to the server, triggering the entire LangGraph -> CrewAI -> MCP flow.
+**Terminal 2: Run the ADK 2.0 Control Room**
+This script acts as the main entry point (utilizing ADK 2.0 `InMemoryRunner`, `Session`, and `Workflow`). It sends a natural language prompt via an A2A JSON-RPC request to the server, triggering the entire LangGraph -> CrewAI -> MCP flow and managing fallback routing.
 
 ```bash
-uv run agents/planner/test_a2a_client.py
+uv run agents/control_room/main.py
 ```
 
 ### Testing the MCP Server (Standalone)
@@ -171,7 +175,7 @@ uv run pytest tests/e2e/ -v
 ## Implementation & Test Status
 
 | Component | Source | Tests | Status |
-|-----------|--------|-------|--------|
+| --------- | ------ | ----- | ------ |
 | **DefaultConfig** | `agents/config/default_config.py` | `tests/unit/test_default_config.py` | Tested |
 | **Mock OMS MCP Server** (`check_budget`, `create_purchase_order`) | `mock_oms_mcp/server.py` | `tests/unit/test_mock_oms.py` | Tested |
 | **Planner State** (`PlanState`) | `agents/planner/state.py` | `tests/integration/test_planner_graph.py` | Tested |
@@ -183,9 +187,9 @@ uv run pytest tests/e2e/ -v
 | **Executor Agents** (`ExecutorAgents`) | `agents/executor/src/agents.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **Executor Crew** (`LogisticsExecutionCrew`) | `agents/executor/src/crew.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **MCP Tool Adapters** (`get_mcp_server`, `get_mock_oms_mcp`) | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
-| **A2A Test Client** | `agents/planner/test_a2a_client.py` | Manual (requires live server) | Manual |
+| **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | Manual (requires live server) | Built (Scaffolded) |
 | **CUJ 1: Happy Path Restock** (E2E) | Full stack | `tests/e2e/test_cuj1_happy_path.py` | Tested |
-| **Cross-Framework Error Handling / Re-planning** (CUJ 3) | — | — | TODO — next |
+| **Cross-Framework Error Handling / Re-planning** (CUJ 3) | `agents/control_room/agent.py` | `tests/e2e/test_cuj3_replanning.py` | Tested |
 | **Google Agent Engine Deployment** | — | — | TODO — after CUJ 3 |
 | **Agent Identity / Least Privilege** (CUJ 2) | — | — | TODO — blocked on Agent Engine |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
@@ -195,11 +199,11 @@ uv run pytest tests/e2e/ -v
 Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the current implementation.
 
 | Area | What's in the Diagram | Current State | Gap |
-|------|----------------------|---------------|-----|
+| ---- | --------------------- | ------------- | --- |
 | **Execution Agents** | Supply Chain, Customer Support, Inventory agents | One generic logistics agent | Missing specialized agent swarm |
 | **External Systems** | ERP, CRM integrations on both sides | None | No ERP/CRM connectors |
 | **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | None — no auth boundaries enforced | Blocked on Agent Engine deployment |
-| **Session Management** | Enhanced session management | No session state across agent calls | No cross-agent session persistence |
+| **Session Management** | Enhanced session management | Partially addressed via ADK 2.0 `InMemoryRunner` & `Session` | Need persistent remote session DB |
 | **Agent Engine** | Core Runtime hosting both layers | Running locally | Not deployed to Agent Engine |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
 | **Multiple MCP connections** | MCP on both planning and execution sides | MCP only on execution side | Planning Agent has no MCP tools |
@@ -213,7 +217,7 @@ Priority is based on **impact** (how much it improves the demo), **ease** (effor
 ### Runtime Enhancements
 
 | Priority | Feature | Availability | Used in Demo | Use Case in This Scenario |
-|----------|---------|-------------|--------------|---------------------------|
+| -------- | ------- | ------------ | ------------ | ------------------------- |
 | **P0** | Resource level IAM binding | GA | Not yet | CUJ 2: restrict the Planning Agent's identity so it cannot access the vector store directly |
 | **P1** | Bring Your Own Container (BYOC) | GA | Not yet | Package LangGraph + CrewAI + MCP dependencies into a custom container for consistent deployment |
 | **P1** | Performance: fast cold starts and provisioning | GA | Not yet | Reduce latency when spinning up the Planning Agent on incoming inventory alerts |
@@ -227,7 +231,7 @@ Priority is based on **impact** (how much it improves the demo), **ease** (effor
 ### Context Enhancements
 
 | Priority | Feature | Availability | Used in Demo | Use Case in This Scenario |
-|----------|---------|-------------|--------------|---------------------------|
+| -------- | ------- | ------------ | ------------ | ------------------------- |
 | **P1** | Framework-agnostic session support | Q2 | Not yet | Share session state between LangGraph (planner) and CrewAI (executor) seamlessly |
 | **P1** | Custom Session IDs | Preview at Next '26 | Not yet | Correlate a restock alert to its session across Planning Agent and Execution Agents |
 | **P2** | Configurable session fields | Q2 | Not yet | Store region, budget, and delegation status as structured session metadata |
@@ -239,7 +243,7 @@ Priority is based on **impact** (how much it improves the demo), **ease** (effor
 ### Sandbox Enhancements
 
 | Priority | Feature | Availability | Used in Demo | Use Case in This Scenario |
-|----------|---------|-------------|--------------|---------------------------|
+| -------- | ------- | ------------ | ------------ | ------------------------- |
 | **P2** | Code Execution | GA at Next '26 | Not yet | Let the planner dynamically compute optimal order quantities or budget splits |
 | **P2** | Snapshot API long-running workflows | Preview at Next '26 | Not yet | Checkpoint a multi-step procurement workflow so it can resume after interruption |
 | **P3** | BYOC custom browser tools / containers | GA at Next '26 | Not yet | Run the MCP vector search adapter in an isolated container with network controls |

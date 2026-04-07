@@ -20,8 +20,7 @@ for _p in [
         sys.path.insert(0, _p)
 
 import pytest
-from agents.planner.state import PlanState
-from agents.planner.prompts import AlertExtraction
+from agents.planner.state import PlanState, AlertExtraction
 from agents.config.default_config import DefaultConfig
 
 
