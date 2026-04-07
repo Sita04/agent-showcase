@@ -220,7 +220,7 @@ uv run pytest tests/e2e/ -v
 | **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested |
 | **CUJ 1: Happy Path Restock** (E2E) | Full stack | `tests/e2e/test_cuj1_happy_path.py` | Tested |
 | **Cross-Framework Error Handling / Re-planning** (CUJ 3) | `agents/control_room/agent.py` | `tests/e2e/test_cuj3_replanning.py` | Tested |
-| **Identity Shield Graph** (CUJ 2 — routing + IAM check) | `agents/planner/graph.py` | `tests/integration/test_identity_shield.py` | Tested (IAM mocked in CI) |
+| **Identity Shield Graph** (CUJ 2 — routing + IAM check) | `agents/planner/graph.py` | `tests/integration/test_identity_shield.py` | Tested |
 | **Identity Shield Control Room** (CUJ 2 — security block handling) | `agents/control_room/agent.py` | `tests/e2e/test_cuj2_identity_shield.py` | Tested |
 | **Agent Engine Deployment** (Planning Agent) | `scripts/deploy_to_agent_engine.py` | — | Deployed (`reasoningEngines/7579541130434314240`) |
 | **Agent Engine IAM** (service accounts + role binding) | `scripts/setup_iam.sh` | — | Done (`planning-agent-sa`, `execution-agent-sa`) |
@@ -248,29 +248,29 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 
 ### Phase 2: Enforce IAM Boundaries (DONE)
 
-4. **IAM role separation**: `planning-agent-sa` has only `aiplatform.user`, which excludes `aiplatform.indexes.delete`. The execution SA has `aiplatform.editor` with full write access.
-5. **Optional IAM deny policy** (`deny-planning-agent-index-delete`): Requires `iam.denypolicies.create` permission. Belt-and-suspenders — not strictly needed since `aiplatform.user` already blocks index operations.
+1. **IAM role separation**: `planning-agent-sa` has only `aiplatform.user`, which excludes `aiplatform.indexes.delete`. The execution SA has `aiplatform.editor` with full write access.
+2. **Optional IAM deny policy** (`deny-planning-agent-index-delete`): Requires `iam.denypolicies.create` permission. Belt-and-suspenders — not strictly needed since `aiplatform.user` already blocks index operations.
 
 ### Phase 3: Implement & Test CUJ 2 (DONE)
 
-7. **Planner graph conditional routing** (`agents/planner/graph.py`):
+1. **Planner graph conditional routing** (`agents/planner/graph.py`):
    * `AlertExtraction` now includes `is_destructive` flag — LLM classifies destructive vs. legitimate intent
    * `route_after_analysis` routes destructive requests to security path, normal requests to delegation
    * `attempt_forbidden_action` node calls `IndexServiceClient.delete_index()` — blocked by IAM (`PermissionDenied`)
    * `generate_security_report` node produces an incident report
-8. **Control Room security block handling** (`agents/control_room/agent.py`):
+2. **Control Room security block handling** (`agents/control_room/agent.py`):
    * Detects security violation keywords ("permission denied", "security violation", "blocked by iam", "identity shield")
    * Returns immediately with `SECURITY BLOCK` status — no re-planning attempted
-9. **Integration tests** (`tests/integration/test_identity_shield.py`, 5 tests):
+3. **Integration tests** (`tests/integration/test_identity_shield.py`, 5 tests):
    * Conditional routing (destructive vs. normal)
    * `PermissionDenied` capture in state
    * Security report generation
    * Full graph security path end-to-end
-10. **E2E test** (`tests/e2e/test_cuj2_identity_shield.py`):
+4. **E2E test** (`tests/e2e/test_cuj2_identity_shield.py`):
     * Control Room with mocked A2A security response
     * Asserts single A2A call (no retry) and `SECURITY BLOCK` outcome
 
-### Prerequisites
+### CUJ 2 Prerequisites
 
 * [x] GCP project with Agent Engine enabled (`gcp-samples-ic0`)
 * [x] Vertex AI API enabled
