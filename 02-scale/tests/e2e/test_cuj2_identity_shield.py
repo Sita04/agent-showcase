@@ -95,6 +95,7 @@ async def test_identity_shield_via_control_room():
         final_session = await runner.session_service.get_session(
             app_name="test_app", user_id="admin", session_id=session.id
         )
+        assert final_session is not None
 
         outcome = final_session.state.get("final_outcome", "")
 

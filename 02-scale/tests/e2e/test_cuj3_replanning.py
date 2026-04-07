@@ -70,9 +70,9 @@ async def test_control_room_replanning():
         final_session = await runner.session_service.get_session(
             app_name="test_app", user_id="admin", session_id=session.id
         )
-        
-        outcome = final_session.state.get("final_outcome", "")
-        
+        assert final_session is not None
+
+        outcome = final_session.state.get("final_outcome", "")        
         # Assertions
         assert mock_post.call_count == 2, "Workflow should have retried the A2A call after failing."
         assert "SUCCESS" in outcome, "The workflow should have ultimately succeeded."

@@ -26,7 +26,7 @@ def mock_graph():
 
 @pytest.fixture
 def a2a_app(mock_graph):
-    with patch("graph.build_planner_graph", return_value=mock_graph):
+    with patch("agents.planner.a2a_server.build_planner_graph", return_value=mock_graph):
         from agents.planner.a2a_server import PlannerAgentExecutor
 
         agent_card = AgentCard(
@@ -98,7 +98,7 @@ async def test_message_send(a2a_client):
 
 
 async def test_cancel_raises():
-    with patch("graph.build_planner_graph"):
+    with patch("agents.planner.a2a_server.build_planner_graph"):
         from agents.planner.a2a_server import PlannerAgentExecutor
 
         executor = PlannerAgentExecutor()

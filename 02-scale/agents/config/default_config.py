@@ -35,7 +35,7 @@ class DefaultConfig:
     
     # Agent Settings
     AGENT_TEMPERATURE: float = 1.0
-    AGENT_MAX_TOKENS: int = 1024
+    AGENT_MAX_TOKENS: int = 4096
     MAX_REASONING_ATTEMPTS: int = 3
     
     # Framework Fallbacks

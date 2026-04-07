@@ -3,10 +3,7 @@
 from unittest.mock import patch, MagicMock
 import pytest
 
-# graph.py uses bare `from state import AlertExtraction`, which resolves via
-# sys.path to agents/planner/state.py. We must use the same class for
-# isinstance checks in graph.py to pass.
-from state import AlertExtraction, PlanState
+from agents.planner.state import AlertExtraction, PlanState
 
 
 @pytest.fixture
@@ -78,7 +75,6 @@ class TestFullGraph:
     @patch("agents.planner.graph.LogisticsExecutionCrew")
     @patch("agents.planner.graph.ChatGoogleGenerativeAI")
     async def test_end_to_end(self, MockLLM, MockCrew):
-        # Use bare-import AlertExtraction (same class graph.py uses for isinstance)
         extraction = AlertExtraction(
             region="Northeast",
             item_description="Mugs",

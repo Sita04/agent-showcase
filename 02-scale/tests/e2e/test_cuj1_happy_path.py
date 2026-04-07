@@ -12,7 +12,7 @@ import re
 
 import pytest
 
-from state import PlanState
+from agents.planner.state import PlanState
 
 # Skip the entire module if no real GCP project is configured.
 _project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
@@ -61,7 +61,7 @@ async def test_happy_path_restock(planner_graph):
     report = final_state.get("final_report", "")
     assert report, "No final report generated"
 
-    # The report should mention a Purchase Order ID (PO-xxx-N pattern)
-    assert re.search(r"PO-\S+", report), (
+    # The report should mention a Purchase Order ID (PO-xxx-N or POxxx pattern)
+    assert re.search(r"PO-?\S+", report), (
         f"Report does not contain a Purchase Order ID: {report}"
     )

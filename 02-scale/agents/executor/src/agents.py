@@ -45,7 +45,7 @@ class ExecutorAgents:
             verbose=True,
             allow_delegation=False,
             memory=False,
-            reasoning=True,
+            reasoning=False,
             max_reasoning_attempts=config.MAX_REASONING_ATTEMPTS,
             llm=self.llm
         )
@@ -60,7 +60,7 @@ class ExecutorAgents:
             verbose=True,
             allow_delegation=False,
             memory=False,
-            reasoning=True,
+            reasoning=False,
             max_reasoning_attempts=config.MAX_REASONING_ATTEMPTS,
             llm=self.llm
         )

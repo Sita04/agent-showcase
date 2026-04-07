@@ -57,6 +57,7 @@ async def _run_node(ctx, node_input):
     async for event in control_room_orchestrator.run(ctx=ctx, node_input=node_input):
         if hasattr(event, "output") and event.output is not None:
             result = event.output
+    assert result is not None
     return result
 
 

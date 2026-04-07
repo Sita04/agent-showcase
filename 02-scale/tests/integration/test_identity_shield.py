@@ -23,7 +23,7 @@ import pytest
 
 from google.api_core.exceptions import PermissionDenied
 
-from state import AlertExtraction, PlanState
+from agents.planner.state import AlertExtraction, PlanState
 
 
 @pytest.fixture
@@ -123,9 +123,10 @@ class TestForbiddenAction:
         nodes = PlannerNodes()
         result = nodes.attempt_forbidden_action(malicious_plan_state)
 
-        assert result["current_step"] == "security_check"
-        assert "Blocked by Identity Shield" in result["security_violation"]
-        assert "Permission" in result["security_violation"] or "permission" in result["security_violation"]
+        assert result.get("current_step") == "security_check"
+        assert result.get("security_violation") is not None
+        assert "Blocked by Identity Shield" in str(result.get("security_violation"))
+        assert "Permission" in str(result.get("security_violation")) or "permission" in str(result.get("security_violation"))
 
     @patch("agents.planner.graph.aiplatform_v1")
     async def test_security_report_generated(
@@ -137,15 +138,13 @@ class TestForbiddenAction:
 
         nodes = PlannerNodes()
 
-        state_with_violation = {
-            **malicious_plan_state,
-            "security_violation": "Blocked by Identity Shield: Permission denied",
-        }
+        state_with_violation: PlanState = malicious_plan_state.copy() # type: ignore
+        state_with_violation["security_violation"] = "Blocked by Identity Shield: Permission denied"
         result = nodes.generate_security_report(state_with_violation)
 
-        assert result["current_step"] == "completed"
-        assert result["final_report"] is not None
-        assert "SECURITY VIOLATION" in result["final_report"]
+        assert result.get("current_step") == "completed"
+        assert result.get("final_report") is not None
+        assert "SECURITY VIOLATION" in str(result.get("final_report"))
 
 
 class TestFullSecurityPath:
