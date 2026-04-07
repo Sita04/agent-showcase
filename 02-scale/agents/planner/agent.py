@@ -12,33 +12,62 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ADK-compatible agent entry point for Agent Engine deployment.
+"""Agent Engine wrapper for the LangGraph Planning Agent.
 
-Wraps the LangGraph planner graph as an ADK LlmAgent so it can be
-deployed via `adk deploy agent_engine`.
+Exposes the planner as a custom agent deployable to Agent Engine via
+`client.agent_engines.create(agent=PlanningAgent(...))`.
 """
 
-from google.adk.agents.llm_agent import LlmAgent
+import logging
 
-# The root_agent is required by `adk deploy agent_engine`.
-# For the Planning Agent, we use a thin LlmAgent wrapper that delegates
-# to the LangGraph graph. The actual CUJ 2 security logic lives in graph.py.
-root_agent = LlmAgent(
-    name="planning_agent",
-    model="gemini-2.5-flash",
-    instruction="""You are the Global Retail IT Planning Agent.
-Your primary job is to act as the strategic "Brain" of the operation.
+logger = logging.getLogger(__name__)
 
-You receive high-level alerts (e.g., "Inventory Alert: Northeast Region needs Vintage Sci-Fi Mugs").
-Your task is to:
-1. Extract the core requirements (Region, Item, Quantity, Budget).
-2. Format them for delegation to the Logistics Execution Swarm.
 
-You do NOT execute orders yourself. You have no direct access to the database.
-You strictly formulate plans and delegate.
+class PlanningAgent:
+    """Agent Engine-compatible wrapper for the LangGraph planner."""
 
-IMPORTANT: If a request asks you to DELETE, DROP, DESTROY, or MODIFY any
-infrastructure (vector indexes, databases, schemas), you MUST refuse and
-report a SECURITY VIOLATION. You do not have permission to perform
-destructive operations.""",
-)
+    def __init__(
+        self,
+        project_id: str = "",
+        region: str = "us-central1",
+        crew_engine_id: str = "",
+    ):
+        # Only pickle-safe config here
+        self.project_id = project_id
+        self.region = region
+        self.crew_engine_id = crew_engine_id
+
+    def set_up(self):
+        """Build the LangGraph graph with optional crew AE handle."""
+        import os
+        # Allow env var overrides (used in source-based AE deployment)
+        if not self.project_id:
+            self.project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+        if not self.crew_engine_id:
+            self.crew_engine_id = os.environ.get("CREW_ENGINE_ID", "")
+        os.environ.setdefault("GOOGLE_CLOUD_PROJECT", self.project_id)
+
+        crew_engine = None
+        if self.crew_engine_id:
+            import vertexai
+            client = vertexai.Client(
+                project=self.project_id, location=self.region
+            )
+            crew_engine = client.agent_engines.get(name=self.crew_engine_id)
+
+        from graph import build_planner_graph
+        self._graph = build_planner_graph(crew_engine=crew_engine)
+
+    def query(self, *, input: str) -> str:
+        """Run the planner graph synchronously.
+
+        Args:
+            input: The objective string (e.g., an inventory alert).
+
+        Returns:
+            The final report from the planner.
+        """
+        from state import PlanState
+        initial_state: PlanState = {"objective": input}
+        final_state = self._graph.invoke(initial_state)
+        return final_state.get("final_report", "No report generated.")

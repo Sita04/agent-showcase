@@ -35,11 +35,22 @@ def get_mcp_server():
         "search_products",
     )
 
+def _resolve_oms_server_path() -> str:
+    """Resolve the Mock OMS server path, with fallback for Agent Engine."""
+    if os.path.exists(OMS_MCP_SERVER_PATH):
+        return OMS_MCP_SERVER_PATH
+    # Fallback: find via importlib (works when deployed via extra_packages)
+    import importlib.util
+    spec = importlib.util.find_spec("mock_oms_mcp.server")
+    if spec and spec.origin:
+        return spec.origin
+    return OMS_MCP_SERVER_PATH
+
 def get_mock_oms_mcp():
     """Create an MCPServerAdapter connected to the Mock Order Management System MCP server."""
     return MCPServerAdapter(
         StdioServerParameters(
-            command="uv",
-            args=["run", "-q", OMS_MCP_SERVER_PATH],
+            command=sys.executable,
+            args=[_resolve_oms_server_path()],
         )
     )

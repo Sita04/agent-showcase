@@ -46,7 +46,7 @@ class TestAnalyzeAlert:
 
 
 class TestDelegateToExecutor:
-    @patch("agents.planner.graph.LogisticsExecutionCrew")
+    @patch("agents.executor.src.crew.LogisticsExecutionCrew")
     def test_success(self, MockCrew, planner_nodes, sample_plan_state):
         MockCrew.return_value.run.return_value = "PO-123 created successfully"
         result = planner_nodes.delegate_to_executor(sample_plan_state)
@@ -54,7 +54,7 @@ class TestDelegateToExecutor:
         assert "PO-123" in result["execution_result"]
         assert result["current_step"] == "executed"
 
-    @patch("agents.planner.graph.LogisticsExecutionCrew")
+    @patch("agents.executor.src.crew.LogisticsExecutionCrew")
     def test_failure(self, MockCrew, planner_nodes, sample_plan_state):
         MockCrew.return_value.run.side_effect = Exception("MCP connection failed")
         result = planner_nodes.delegate_to_executor(sample_plan_state)
@@ -72,7 +72,7 @@ class TestGenerateReport:
 
 
 class TestFullGraph:
-    @patch("agents.planner.graph.LogisticsExecutionCrew")
+    @patch("agents.executor.src.crew.LogisticsExecutionCrew")
     @patch("agents.planner.graph.ChatGoogleGenerativeAI")
     async def test_end_to_end(self, MockLLM, MockCrew):
         extraction = AlertExtraction(
