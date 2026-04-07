@@ -23,11 +23,17 @@ def generate():
             Part.from_bytes(data=image_data, mime_type="image/jpeg"),
             """Edit this architecture diagram. Keep the same visual style and color scheme. Use LARGE, BOLD, clearly readable text. Output a HIGH RESOLUTION image.
 
-CHANGE 1 — CRITICAL: Find the text "VECTOR MEMORY" in the Platform Services bar at the bottom of the Agent Engine box. REPLACE the word "VECTOR MEMORY" with just the single word "MEMORY". Delete the word "VECTOR". The box should read "MEMORY" only. Do NOT keep the word "Vector".
+Remove these parenthetical labels from the diagram text. Delete ONLY the parenthetical part, keep the main label:
+- "(Core Runtime)" — delete everywhere
+- "(Python)" — delete everywhere
+- "(Uvicorn)" — delete everywhere
+- "(CrewAI)" — delete everywhere EXCEPT in "Execution Crew (CrewAI)" which should KEEP "(CrewAI)"
+- "(REST API)" — delete everywhere
+- "(MCP tool)" — delete everywhere
+- "(CrewAI, Python)" — replace with "(CrewAI)"
+- "(aiplatform editor IAM)" or "(aiplatform.editor IAM)" — replace with "(Editor IAM)"
 
-CHANGE 2: The diagram already has ERP System and CRM System on the left — keep them exactly as they are.
-
-Do NOT change anything else.""",
+Do NOT change anything else. Keep all layout, colors, arrows, and other text exactly as they are.""",
         ],
         config=GenerateContentConfig(
             response_modalities=[Modality.TEXT, Modality.IMAGE],
