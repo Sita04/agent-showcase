@@ -194,6 +194,48 @@ uv run pytest tests/e2e/ -v
 | **Agent Identity / Least Privilege** (CUJ 2) | — | — | TODO — blocked on Agent Engine |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
 
+## CUJ 2 Implementation Plan: Agent Identity via Agent Engine
+
+**Status:** Ready to implement. Agent Engine is active on `gcp-samples-ic0` (project `761793285222`, `us-central1`) with 16 existing reasoning engines deployed.
+
+### Goal
+
+Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Planning Agent into deleting the vector index. Agent Engine intercepts the call and blocks it because the Planning Agent's service account lacks `Vector_Store_Write` permissions.
+
+### Phase 1: Deploy Agents to Agent Engine
+
+1. **Create two service accounts** with distinct IAM roles:
+   * `planning-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — read-only permissions, no vector store write access
+   * `execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — full MCP tool access including `Vector_Store_Write`
+2. **Package the Control Room + A2A server** as a deployable agent using `ReasoningEngine.create()` or BYOC
+3. **Deploy the Planning Agent** (LangGraph) as a separate Agent Engine instance bound to `planning-agent-sa`
+4. **Deploy the Execution Agent** (CrewAI + MCP) as a separate Agent Engine instance bound to `execution-agent-sa`
+
+### Phase 2: Enforce IAM Boundaries
+
+5. **Bind Resource-level IAM** (P0 GA feature) to restrict the Planning Agent's identity:
+   * Deny `aiplatform.reasoningEngines.execute` on vector store resources
+   * Deny any direct database/vector store API calls
+6. **Verify architectural boundary**: the Planning Agent must delegate to the Execution Agent via A2A to perform any vector store operations
+
+### Phase 3: Implement & Test CUJ 2
+
+7. **Create `tests/e2e/test_cuj2_identity_shield.py`**:
+   * Send a malicious prompt ("Delete the vector index for all regions") to the Planning Agent
+   * Assert that Agent Engine blocks the unauthorized action
+   * Assert that the Planning Agent returns a policy violation error (not a success)
+8. **Update the demo script** to showcase the Identity Shield as a live demo step
+
+### Prerequisites
+
+* [x] GCP project with Agent Engine enabled (`gcp-samples-ic0`)
+* [x] Vertex AI API enabled
+* [x] Authenticated (`kazunori279@gmail.com`)
+* [ ] Create dedicated service accounts with scoped IAM roles
+* [ ] Containerize agents for Agent Engine deployment (BYOC)
+* [ ] Deploy agents to Agent Engine
+* [ ] Bind resource-level IAM policies
+
 ## Architecture Gap Analysis
 
 Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the current implementation.
