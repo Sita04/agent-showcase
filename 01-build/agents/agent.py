@@ -77,7 +77,7 @@ async def shopping_workflow(ctx: Context, node_input):
     if ctx.state.get("awaiting_selection"):
         options = ctx.state.get("found_options", [])
         selection_agent = LlmAgent(
-            name=f"selection_agent_{run_id}_{uuid.uuid4().hex[:4]}",
+            name=f"sys_speaker_selection_{run_id}_{uuid.uuid4().hex[:4]}",
             model="gemini-2.5-flash",
             instruction=f"""
             The user is finalizing their shopping cart based on the options we just found:

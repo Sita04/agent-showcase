@@ -86,6 +86,7 @@ async def search_products(
         rows: Number of results to return (1-100, default 10).
         filter: JSON metadata filter (e.g. '{"price": {"$lt": 50}}').
     """
+    logger.info(f"🔎 [MCP Server] Searching for query: '{query}' in dataset: {dataset_id}")
     # Build REST API payload
     payload: dict = {
         "query": query,
@@ -93,6 +94,7 @@ async def search_products(
         "rows": min(max(rows, 1), 100),
         "use_semantic_search": True,
         "use_text_search": False,
+        "rrf_alpha": 0.6,
         "use_rerank": "ranking_api",
     }
 
@@ -136,7 +138,8 @@ async def search_products(
         desc = item.get("description", "")
         img_url = item.get("img_url", "")
         url = item.get("url", "")
-        score = item.get("dense_dist") or item.get("sparse_dist") or item.get("rerank_score") or 0
+        # score = item.get("rerank_score") or item.get("dense_dist") or 0
+        score = item.get("dense_dist") or item.get("rerank_score") or 0
 
         line = f"{i}. {name}"
         if desc:
@@ -147,6 +150,7 @@ async def search_products(
             line += f"\n   URL: {url}"
         if img_url:
             line += f"\n   Image: {img_url}"
+        line += f"\n   Price: ${item.get('price', 0.0):.2f}"
         line += f"\n   Score: {score:.4f}"
         lines.append(line)
 
