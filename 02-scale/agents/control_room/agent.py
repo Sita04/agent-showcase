@@ -1,136 +1,110 @@
-import asyncio
 import httpx
 import uuid
-import json
 
-from google.adk import Context
-from google.adk.workflow import Workflow, node
 from google.adk.agents.llm_agent import LlmAgent
 
 A2A_SERVER_URL = "http://localhost:8080"
 
-def create_replanner_agent(attempt: int):
-    """Dynamically creates an LLM Agent to handle the Re-planning (CUJ 3)."""
-    return LlmAgent(
-        name=f"replanner_agent_attempt_{attempt}",
-        model="gemini-2.5-flash",
-        instruction="""
-        You are a strategic re-planner for a retail orchestration system. 
-        The previous procurement request failed. Look at the user's original objective and the failure reason.
-        Your job is to rewrite the objective to be broader or more likely to succeed (e.g., changing a specific 
-        rare item to a broader category), while keeping the original intent and budget constraints.
-        
-        OUTPUT INSTRUCTIONS:
-        Output ONLY the new text for the objective. Do not include quotes, preambles, or formatting.
-        """
-    )
 
-@node(name="control_room_orchestrator", rerun_on_resume=True)
-async def control_room_orchestrator(ctx: Context, node_input: str):
+async def delegate_to_planner(objective: str) -> dict:
+    """Delegate an objective to the LangGraph Planning Agent via A2A JSON-RPC.
+
+    Sends the objective to the A2A server and returns the planner's report.
+    The report may indicate success, failure (item not found), or a security
+    violation (permission denied).
+
+    Args:
+        objective: The natural language objective to send to the planner,
+            e.g. "Order 500 Vintage Sci-Fi Mugs for Northeast region, max $50/unit".
+
+    Returns:
+        A dict with 'status' ("success", "error", or "security_block") and 'report'.
     """
-    Main Orchestrator Node.
-    Uses dynamic code routing to handle the A2A delegation and CUJ 3 re-planning loops.
-    """
-    max_attempts = 2
-    attempt = 1
-    current_objective = node_input
-    report = "No delegation attempted."
-    is_success = False
-    
-    print(f"\n🚨 [Control Room] Received Alert: {current_objective}")
-    
-    while attempt <= max_attempts:
-        print(f"\n➡️  [Control Room] Delegating to LangGraph (Attempt {attempt}):\n    '{current_objective}'")
-        
-        # --- 1. Call A2A Server (Sub-agent Delegation) ---
-        msg_id = str(uuid.uuid4())
-        json_rpc_payload = {
-            "jsonrpc": "2.0",
-            "id": f"req-cr-{attempt}",
-            "method": "message/send",
-            "params": {
-                "message": {
-                    "message_id": msg_id,
-                    "parts": [{"text": current_objective}],
-                    "role": "user"
-                }
+    msg_id = str(uuid.uuid4())
+    json_rpc_payload = {
+        "jsonrpc": "2.0",
+        "id": f"req-cr-{msg_id[:8]}",
+        "method": "message/send",
+        "params": {
+            "message": {
+                "message_id": msg_id,
+                "parts": [{"text": objective}],
+                "role": "user",
             }
-        }
+        },
+    }
 
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client: 
-                response = await client.post(f"{A2A_SERVER_URL}/", json=json_rpc_payload)
-                
-                if response.status_code != 200:
-                    report = f"A2A Server error: {response.status_code}"
-                    is_success = False
-                else:
-                    result = response.json()
-                    if "error" in result:
-                        report = str(result['error'])
-                        is_success = False
-                    else:
-                        task = result.get("result", {})
-                        artifacts = task.get("artifacts", [])
-                        report = "No report returned."
-                        if artifacts and "parts" in artifacts[-1]:
-                            parts = artifacts[-1]["parts"]
-                            if len(parts) > 0 and "text" in parts[0]:
-                                report = parts[0]["text"]
-                        
-                        # CUJ 2: Detect security blocks (terminal — no replanning)
-                        security_keywords = ["permission denied", "security violation", "blocked by iam", "identity shield"]
-                        if any(kw in report.lower() for kw in security_keywords):
-                            print(f"\n🛡️ [Control Room] Security block detected. Not retrying.")
-                            ctx.state["final_outcome"] = f"SECURITY BLOCK: {report}"
-                            return {"status": "Blocked", "report": report}
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(f"{A2A_SERVER_URL}/", json=json_rpc_payload)
 
-                        # Evaluate outcome
-                        if "not found" in report.lower() or "discontinued" in report.lower() or "no inventory" in report.lower():
-                            is_success = False
-                        else:
-                            is_success = True
-        except Exception as e:
-            report = f"Connection error: {str(e)}"
-            is_success = False
+            if response.status_code != 200:
+                return {
+                    "status": "error",
+                    "report": f"A2A Server error: {response.status_code}",
+                }
 
-        # --- 2. Evaluate and Re-plan (CUJ 3) ---
-        if is_success:
-            print(f"\n🎉 [Control Room] Workflow completed successfully:\n{report}")
-            ctx.state["final_outcome"] = report
-            return {"status": "Success", "report": report}
-        
-        print(f"\n⚠️ [Control Room] Attempt {attempt} failed:\n    Reason: {report}")
-        
-        if attempt < max_attempts:
-            print(f"\n💡 [Control Room] Triggering Re-Planner Agent...")
-            replanner = create_replanner_agent(attempt)
-            feedback_prompt = f"Original Objective: {current_objective}\nFailure Reason: {report}\nPlease broaden the search."
-            
-            # Using ctx.run_node to dynamically invoke an LLM agent mid-workflow!
-            new_objective_raw = await ctx.run_node(replanner, feedback_prompt)
-            
-            # Parse the LLM output safely
-            if hasattr(new_objective_raw, "parts"):
-                current_objective = "".join([p.text for p in new_objective_raw.parts if hasattr(p, "text") and p.text])
-            elif isinstance(new_objective_raw, str):
-                current_objective = new_objective_raw
-            else:
-                current_objective = str(new_objective_raw)
-                
-            current_objective = current_objective.strip()
-            print(f"💡 [Control Room] New Objective Generated:\n    '{current_objective}'")
-            
-        attempt += 1
+            result = response.json()
+            if "error" in result:
+                return {"status": "error", "report": str(result["error"])}
 
-    print(f"\n❌ [Control Room] Fatal Error: Max attempts reached.")
-    ctx.state["final_outcome"] = f"Failed after {max_attempts} attempts. Last error: {report}"
-    return {"status": "Failed", "report": report}
+            task = result.get("result", {})
+            artifacts = task.get("artifacts", [])
+            report = "No report returned."
+            if artifacts and "parts" in artifacts[-1]:
+                parts = artifacts[-1]["parts"]
+                if len(parts) > 0 and "text" in parts[0]:
+                    report = parts[0]["text"]
 
-# Define the workflow graph using the newly decorated node
-ControlRoomAgent = Workflow(
+            # CUJ 2: Detect security blocks (terminal — no replanning)
+            security_keywords = [
+                "permission denied",
+                "security violation",
+                "blocked by iam",
+                "identity shield",
+            ]
+            if any(kw in report.lower() for kw in security_keywords):
+                return {"status": "security_block", "report": report}
+
+            return {"status": "success", "report": report}
+
+    except Exception as e:
+        return {"status": "error", "report": f"Connection error: {str(e)}"}
+
+
+CONTROL_ROOM_INSTRUCTION = """\
+You are the Global Retail IT Control Room orchestrator. You coordinate
+a multi-agent system by delegating tasks to the LangGraph Planning Agent.
+
+## How to work
+
+1. When you receive an inventory alert or procurement request, call
+   `delegate_to_planner` with the objective.
+
+2. Read the returned status:
+   - **"success"**: Report the result to the user. Include the full report text.
+   - **"security_block"**: This is a SECURITY VIOLATION. Report it immediately
+     as "SECURITY BLOCK: <report>". Do NOT retry or try to work around it.
+   - **"error"**: The delegation failed. If the report mentions "not found",
+     "discontinued", or "no inventory", broaden the search terms and call
+     `delegate_to_planner` again with a rewritten objective. You may retry
+     up to once. If it still fails, report the failure.
+
+3. Keep responses concise and professional.
+
+## Important rules
+
+- NEVER retry after a security_block. Security violations are terminal.
+- When broadening a search, keep the original budget and quantity constraints
+  but use more general product terms.
+- Always include the full planner report in your response.
+"""
+
+ControlRoomAgent = LlmAgent(
     name="ControlRoomAgent",
-    edges=[("START", control_room_orchestrator)],
+    model="gemini-2.5-flash",
+    instruction=CONTROL_ROOM_INSTRUCTION,
+    tools=[delegate_to_planner],
 )
 
 # Alias for `adk deploy agent_engine` which expects `root_agent`

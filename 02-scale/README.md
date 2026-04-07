@@ -144,7 +144,7 @@ uv run agents/planner/a2a_server.py
 ```
 
 **Terminal 2: Run the ADK 2.0 Control Room**
-This script acts as the main entry point (utilizing ADK 2.0 `InMemoryRunner`, `Session`, and `Workflow`). It sends a natural language prompt via an A2A JSON-RPC request to the server, triggering the entire LangGraph -> CrewAI -> MCP flow and managing fallback routing.
+This script acts as the main entry point (utilizing ADK `InMemoryRunner` and `LlmAgent`). It sends a natural language prompt via an A2A JSON-RPC request to the server, triggering the entire LangGraph -> CrewAI -> MCP flow and managing fallback routing.
 
 ```bash
 uv run agents/control_room/main.py
@@ -217,18 +217,19 @@ uv run pytest tests/e2e/ -v
 | **Executor Agents** (`ExecutorAgents`) | `agents/executor/src/agents.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **Executor Crew** (`LogisticsExecutionCrew`) | `agents/executor/src/crew.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **MCP Tool Adapters** (`get_mcp_server`, `get_mock_oms_mcp`) | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
-| **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested |
+| **Control Room Agent** (`LlmAgent`, `delegate_to_planner`) | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested |
 | **CUJ 1: Happy Path Restock** (E2E) | Full stack | `tests/e2e/test_cuj1_happy_path.py` | Tested |
 | **Cross-Framework Error Handling / Re-planning** (CUJ 3) | `agents/control_room/agent.py` | `tests/e2e/test_cuj3_replanning.py` | Tested |
 | **Identity Shield Graph** (CUJ 2 — routing + IAM check) | `agents/planner/graph.py` | `tests/integration/test_identity_shield.py` | Tested (IAM mocked in CI) |
 | **Identity Shield Control Room** (CUJ 2 — security block handling) | `agents/control_room/agent.py` | `tests/e2e/test_cuj2_identity_shield.py` | Tested |
 | **Agent Engine Deployment** (Planning Agent) | `scripts/deploy_to_agent_engine.py` | — | Deployed (`reasoningEngines/7579541130434314240`) |
+| **Agent Engine Deployment** (Control Room Agent) | `scripts/deploy_to_agent_engine.py` | — | Deployed (`reasoningEngines/2125119031735222272`) |
 | **Agent Engine IAM** (service accounts + role binding) | `scripts/setup_iam.sh` | — | Done (`planning-agent-sa`, `execution-agent-sa`) |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
 
 ## CUJ 2 Implementation Plan: Agent Identity via Agent Engine
 
-**Status:** All phases complete. Planning Agent deployed to Agent Engine with scoped IAM.
+**Status:** All phases complete. Both agents deployed to Agent Engine with scoped IAM.
 
 Agent Engine is active on `gcp-samples-ic0` (project `761793285222`, `us-central1`).
 
@@ -244,7 +245,10 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 2. **Deployed the Planning Agent** (LangGraph) to Agent Engine via `adk deploy agent_engine` (`scripts/deploy_to_agent_engine.py`)
    * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/7579541130434314240`
    * Bound to `planning-agent-sa` via `client.agent_engines.update()`
-3. **Control Room Agent** runs locally — ADK `Workflow` objects don't serialize for Agent Engine source-based deployment. This is architecturally fine: the identity boundary is enforced on the Planning Agent side.
+3. **Deployed the Control Room Agent** to Agent Engine via `adk deploy agent_engine`
+   * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/2125119031735222272`
+   * Bound to `execution-agent-sa` via `client.agent_engines.update()`
+   * Refactored from ADK `Workflow` to `LlmAgent` with `delegate_to_planner` tool (Workflow is alpha-only and not supported by Agent Engine)
 
 ### Phase 2: Enforce IAM Boundaries (DONE)
 
@@ -281,7 +285,8 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 * [x] IAM roles bound (`aiplatform.user` for planning, `aiplatform.editor` for execution)
 * [x] Planning Agent deployed to Agent Engine (`reasoningEngines/7579541130434314240`)
 * [x] Planning Agent SA bound (`planning-agent-sa` — read-only, no index delete)
-* [ ] Deploy Control Room to Agent Engine (Workflow serialization issue — runs locally for now)
+* [x] Control Room deployed to Agent Engine (`reasoningEngines/2125119031735222272`)
+* [x] Control Room SA bound (`execution-agent-sa` — full access)
 * [ ] IAM deny policy (optional — requires `iam.denypolicies.create` permission)
 
 ## Architecture Gap Analysis
@@ -292,9 +297,9 @@ Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the cur
 | ---- | --------------------- | ------------- | --- |
 | **Execution Agents** | Supply Chain, Customer Support, Inventory agents | One generic logistics agent | Missing specialized agent swarm |
 | **External Systems** | ERP, CRM integrations on both sides | None | No ERP/CRM connectors |
-| **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Planning Agent deployed with `planning-agent-sa` (read-only); graph routes destructive requests to IAM-blocked path; Control Room handles security blocks | Control Room runs locally (Workflow serialization issue) |
+| **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Both agents deployed to Agent Engine with scoped SAs; graph routes destructive requests to IAM-blocked path; Control Room handles security blocks | — |
 | **Session Management** | Enhanced session management | Partially addressed via ADK 2.0 `InMemoryRunner` & `Session` | Need persistent remote session DB |
-| **Agent Engine** | Core Runtime hosting both layers | Planning Agent deployed to Agent Engine | Control Room runs locally |
+| **Agent Engine** | Core Runtime hosting both layers | Both Planning Agent and Control Room deployed to Agent Engine | — |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
 | **Multiple MCP connections** | MCP on both planning and execution sides | MCP only on execution side | Planning Agent has no MCP tools |
 
