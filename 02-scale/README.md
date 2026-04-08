@@ -137,10 +137,12 @@ The primary way to interact with the system is via the **Scale Agents Control Ro
 ![Scale Agents Control Room Dashboard](./assets/dashboard.png)
 
 **Key Features:**
-*   **Real-Time Thought Stream:** See "System" status updates and "Re-planner" logic as they happen, eliminating the "black box" wait during long multi-agent loops.
-*   **Orchestration Graph:** Visual highlighting of the active stage (Planning -> Executing -> Re-planning -> Completed).
-*   **Streaming Markdown:** Final reports and procurement data are rendered as they arrive.
-*   **Security Enforcement:** Instant "Identity Shield" alerts if a destructive action is blocked by IAM.
+
+* **Real-Time Thought Stream:** See "System" status updates and "Re-planner" logic as they happen, eliminating the "black box" wait during long multi-agent loops.
+* **Tactical Executor Visibility:** Deep visibility into the **CrewAI Execution Swarm**. Monitor each agent's internal thoughts and tool actions (e.g., product searches, budget checks) as they occur.
+* **Orchestration Graph:** Visual highlighting of the active stage (Planning -> Executing -> Re-planning -> Completed).
+* **Streaming Markdown:** Final reports and procurement data are rendered as they arrive.
+* **Security Enforcement:** Instant "Identity Shield" alerts if a destructive action is blocked by IAM.
 
 To run the dashboard locally:
 
