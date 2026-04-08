@@ -130,6 +130,32 @@ graph TD
 
 ## Running the Demo
 
+### Scale Agents Control Room Dashboard
+
+The primary way to interact with the system is via the **Scale Agents Control Room Dashboard**. This UI visualizes the entire multi-agent orchestration process, including strategic planning, tactical execution, dynamic re-planning, and security enforcement.
+
+![Scale Agents Control Room Dashboard](./assets/dashboard.png)
+
+To run the dashboard locally:
+
+1. **Start the A2A Planner Server**:
+   ```bash
+   export PYTHONPATH=.
+   export PORT=8080
+   uv run agents/planner/a2a_server.py
+   ```
+
+2. **Start the Dashboard App Server**:
+   In a new terminal:
+   ```bash
+   export PYTHONPATH=.
+   export PORT=8000
+   uv run app_server.py
+   ```
+
+3. **Access the UI**:
+   Open [http://localhost:8000](http://localhost:8000) in your browser.
+
 ### Testing the Full System (Native A2A with ADK 2.0)
 
 The demonstration relies on a **Google ADK 2.0 Control Room Agent** orchestrating a LangGraph planner via the A2A protocol, which in turn triggers the CrewAI execution swarm.
@@ -218,6 +244,7 @@ uv run pytest tests/e2e/ -v
 | **Executor Crew** (`LogisticsExecutionCrew`) | `agents/executor/src/crew.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **MCP Tool Adapters** (`get_mcp_server`, `get_mock_oms_mcp`) | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested |
+| **Scale Agents Dashboard UI** (FastAPI + JS) | `app_server.py`, `ui/` | — | Manual |
 | **CUJ 1: Happy Path Restock** (E2E) | Full stack | `tests/e2e/test_cuj1_happy_path.py` | Tested |
 | **Cross-Framework Error Handling / Re-planning** (CUJ 3) | `agents/control_room/agent.py` | `tests/e2e/test_cuj3_replanning.py` | Tested |
 | **Identity Shield Graph** (CUJ 2 — routing + IAM check) | `agents/planner/graph.py` | `tests/integration/test_identity_shield.py` | Tested |
