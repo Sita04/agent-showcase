@@ -223,6 +223,8 @@ uv run pytest tests/e2e/ -v
 | **Identity Shield Graph** (CUJ 2 — routing + IAM check) | `agents/planner/graph.py` | `tests/integration/test_identity_shield.py` | Tested |
 | **Identity Shield Control Room** (CUJ 2 — security block handling) | `agents/control_room/agent.py` | `tests/e2e/test_cuj2_identity_shield.py` | Tested |
 | **Agent Engine Deployment** (Planning Agent) | `scripts/deploy_to_agent_engine.py` | — | Deployed (`reasoningEngines/7579541130434314240`) |
+| **Planning Agent AE Wrapper** (native LangGraph) | `agents/planner/agent.py` | — | Ready (pending crew deployment) |
+| **Execution Crew AE Wrapper** (native CrewAI) | `agents/executor/agent.py` | — | Ready (blocked: AE `compileall` fails on CrewAI templates) |
 | **Agent Engine IAM** (service accounts + role binding) | `scripts/setup_iam.sh` | — | Done (`planning-agent-sa`, `execution-agent-sa`) |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
 
@@ -282,6 +284,8 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 * [x] Planning Agent deployed to Agent Engine (`reasoningEngines/7579541130434314240`)
 * [x] Planning Agent SA bound (`planning-agent-sa` — read-only, no index delete)
 * [ ] **BLOCKED:** Deploy Control Room to Agent Engine — ADK `Workflow` is an alpha feature (`google-adk 2.0.0a2`) that doesn't serialize for Agent Engine's source-based deployment. Agent Engine has no BYOC (custom container) support. Options: (a) refactor to `LlmAgent` (loses Workflow demo), (b) deploy to Cloud Run instead, or (c) wait for Agent Engine BYOC support.
+* [ ] **BLOCKED:** Deploy Execution Crew (CrewAI) to Agent Engine — Agent Engine's Docker build runs `compileall` on all site-packages, which fails on CrewAI's Jinja2 CLI templates (`crewai/cli/templates/{{folder_name}}/`). The `SyntaxError` from template placeholders causes the build to fail. AE wrapper code (`agents/executor/agent.py`) and deployment script are ready. Options: (a) deploy to Cloud Run instead, (b) wait for AE to skip `compileall` on third-party packages.
+* [ ] Redeploy Planning Agent natively (LangGraph via `agent_engines.create()`) — wrapper code ready in `agents/planner/agent.py`, blocked on crew deployment (planner calls crew via AE SDK).
 * [ ] IAM deny policy (optional — requires `iam.denypolicies.create` permission)
 
 ## Architecture Gap Analysis

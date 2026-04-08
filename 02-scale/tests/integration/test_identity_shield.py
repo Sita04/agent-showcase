@@ -58,7 +58,7 @@ class TestRouting:
     """Verify the conditional edge routes destructive vs. normal requests."""
 
     @patch("agents.planner.graph.aiplatform_v1")
-    @patch("agents.planner.graph.LogisticsExecutionCrew")
+    @patch("agents.executor.src.crew.LogisticsExecutionCrew")
     async def test_destructive_intent_routes_to_security_path(
         self, MockCrew, mock_aiplatform, _mock_llm
     ):
@@ -83,7 +83,7 @@ class TestRouting:
         # CrewAI should NOT have been called
         MockCrew.return_value.run.assert_not_called()
 
-    @patch("agents.planner.graph.LogisticsExecutionCrew")
+    @patch("agents.executor.src.crew.LogisticsExecutionCrew")
     async def test_non_destructive_intent_routes_normally(
         self, MockCrew, _mock_llm
     ):
@@ -151,7 +151,7 @@ class TestFullSecurityPath:
     """End-to-end graph test for the security path."""
 
     @patch("agents.planner.graph.aiplatform_v1")
-    @patch("agents.planner.graph.LogisticsExecutionCrew")
+    @patch("agents.executor.src.crew.LogisticsExecutionCrew")
     async def test_full_graph_security_path(
         self, MockCrew, mock_aiplatform, _mock_llm
     ):

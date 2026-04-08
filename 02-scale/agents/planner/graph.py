@@ -22,16 +22,20 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from google.cloud import aiplatform_v1
 from google.api_core.exceptions import PermissionDenied, Forbidden, NotFound
 from agents.planner.state import PlanState, AlertExtraction
-from agents.config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT, SECURITY_REPORT_PROMPT
-from agents.executor.src.crew import LogisticsExecutionCrew
-from agents.config.default_config import config
+try:
+    from agents.config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT, SECURITY_REPORT_PROMPT
+    from agents.config.default_config import config
+except ImportError:
+    from config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT, SECURITY_REPORT_PROMPT
+    from config.default_config import config
+import json
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("PlannerAgent")
 
 class PlannerNodes:
-    def __init__(self):
+    def __init__(self, crew_engine=None):
         # We use the modern LangChain Google GenAI integration (replaces ChatVertexAI)
         self.llm = ChatGoogleGenerativeAI(
             model=config.PLANNING_MODEL.replace("vertex_ai/", ""), # Remove the crewai vertex prefix if present
@@ -39,6 +43,8 @@ class PlannerNodes:
         )
         # LLM bound to output our specific extraction schema
         self.structured_llm = self.llm.with_structured_output(AlertExtraction)
+        # Optional: handle to the Execution Crew on Agent Engine
+        self.crew_engine = crew_engine
         
     def analyze_alert(self, state: PlanState) -> PlanState:
         """Node 1: Extract intent from the raw objective string."""
@@ -72,26 +78,38 @@ class PlannerNodes:
         }
 
     def delegate_to_executor(self, state: PlanState) -> PlanState:
-        """Node 2: The A2A Bridge. Call the CrewAI swarm."""
+        """Node 2: Call the CrewAI Execution Crew (via Agent Engine or in-process)."""
         logger.info("--- [Planner] Step 2: Delegating to Execution Swarm (CrewAI) ---")
-        
+
+        task_description = state.get("item_description") or "Unknown Item"
+        budget = state.get("max_budget") or 50.0
+        quantity = state.get("quantity_needed") or 1
+
         try:
-            # Instantiate the sub-agent swarm
-            crew = LogisticsExecutionCrew()
-            
-            # Execute the synchronous run
-            result = crew.run(
-                task_description=state.get("item_description") or "Unknown Item",
-                budget=state.get("max_budget") or 50.0,
-                quantity=state.get("quantity_needed") or 1
-            )
-            
+            if self.crew_engine is not None:
+                # Call the Execution Crew on Agent Engine
+                input_payload = json.dumps({
+                    "task_description": task_description,
+                    "budget": budget,
+                    "quantity": quantity,
+                })
+                result = self.crew_engine.query(input=input_payload)
+            else:
+                # Fallback: run CrewAI in-process (local dev)
+                from agents.executor.src.crew import LogisticsExecutionCrew
+                crew = LogisticsExecutionCrew()
+                result = crew.run(
+                    task_description=task_description,
+                    budget=budget,
+                    quantity=quantity,
+                )
+
             return {
                 "current_step": "executed",
                 "delegation_status": "success",
                 "execution_result": str(result)
             }
-            
+
         except Exception as e:
             logger.error(f"Execution Swarm failed: {e}")
             return {
@@ -181,8 +199,8 @@ def route_after_analysis(state: PlanState) -> str:
 
 
 # Graph Construction
-def build_planner_graph():
-    nodes = PlannerNodes()
+def build_planner_graph(crew_engine=None):
+    nodes = PlannerNodes(crew_engine=crew_engine)
     workflow = StateGraph(PlanState)
 
     # Add Nodes
