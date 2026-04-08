@@ -18,12 +18,20 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from crewai import Crew, Process, LLM
-from src.agents import ExecutorAgents
-from src.tasks import ExecutorTasks
-from src.tools import get_mcp_server, get_mock_oms_mcp
+try:
+    from .agents import ExecutorAgents
+    from .tasks import ExecutorTasks
+    from .tools import get_mcp_server, get_mock_oms_mcp
+except ImportError:
+    from src.agents import ExecutorAgents
+    from src.tasks import ExecutorTasks
+    from src.tools import get_mcp_server, get_mock_oms_mcp
 from dotenv import load_dotenv
 import logging
-from config.default_config import config
+try:
+    from ...config.default_config import config
+except ImportError:
+    from config.default_config import config
 from contextlib import ExitStack
 
 # Set up logging to capture any reasoning errors

@@ -18,8 +18,12 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from crewai import Agent, LLM
-from config.prompts import EXECUTOR_AGENT_PROMPTS
-from config.default_config import config
+try:
+    from ...config.prompts import EXECUTOR_AGENT_PROMPTS
+    from ...config.default_config import config
+except ImportError:
+    from config.prompts import EXECUTOR_AGENT_PROMPTS
+    from config.default_config import config
 
 class ExecutorAgents:
     """Defines the specialized agents for the Execution Layer."""

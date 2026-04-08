@@ -1,8 +1,9 @@
 import os
 import uvicorn
 from typing import Optional
-from fastapi import FastAPI, Form, File, UploadFile
+from fastapi import FastAPI, Form, File, UploadFile, Request
 from fastapi.staticfiles import StaticFiles
+import stripe
 
 # Helper to load .env manually since python-dotenv might not be available
 def load_env():
@@ -21,8 +22,7 @@ def load_env():
             break # Prioritize the first one found
 
 load_env()
-
-from google.adk.runners import Runner
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -30,6 +30,7 @@ from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.genai.types import Content as GenAIContent, Part as GenAIPart
 
 from agents.agent import root_agent
+from agents.views.search import render_search_ui
 
 app = FastAPI(title="Shopping Squad UI")
 
@@ -105,7 +106,12 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
 
     response_data = {"status": "success"}
     if found_options:
-        response_data["found_options"] = found_options
+        # Flatten the list of options from CartItemOptions
+        all_products = []
+        for group in found_options:
+            all_products.extend(group.get("options", []))
+        # Use A2UI view to render products
+        response_data["a2ui_data"] = render_search_ui(all_products)
 
     if reply_text:
         response_data["reply"] = reply_text
@@ -114,6 +120,53 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
 
     return response_data
 
+
+from pydantic import BaseModel
+from typing import List
+
+class CartItem(BaseModel):
+    sku: str
+    name: str
+    price: float
+    imgSrc: Optional[str] = None
+
+@app.post("/api/create-checkout-session")
+async def create_checkout_session(items: List[CartItem], request: Request):
+    try:
+        line_items = []
+        from collections import defaultdict
+        grouped = defaultdict(lambda: {"name": "", "price": 0.0, "quantity": 0})
+        
+        for item in items:
+            grouped[item.sku]["name"] = item.name
+            grouped[item.sku]["price"] = item.price
+            grouped[item.sku]["quantity"] += 1
+            
+        for sku, data in grouped.items():
+            line_items.append({
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": data["name"],
+                    },
+                    "unit_amount": int(data["price"] * 100),
+                },
+                "quantity": data["quantity"],
+            })
+            
+        origin = request.headers.get("origin") or "http://localhost:8080"
+        
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=line_items,
+            mode="payment",
+            success_url=f"{origin}/?success=true",
+            cancel_url=f"{origin}/?canceled=true",
+        )
+        return {"url": session.url}
+    except Exception as e:
+        print(f"Error creating stripe session: {e}")
+        return {"error": str(e)}, 400
 
 # Mount static files at root (Mount this LAST)
 app.mount("/", StaticFiles(directory="ui", html=True), name="ui")

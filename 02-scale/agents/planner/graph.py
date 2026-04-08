@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
-
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
 from google.cloud import aiplatform_v1
 from google.api_core.exceptions import PermissionDenied, Forbidden, NotFound
-from agents.planner.state import PlanState, AlertExtraction
+
+try:
+    from .state import PlanState, AlertExtraction
+except ImportError:
+    from state import PlanState, AlertExtraction
+
 try:
     from agents.config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT, SECURITY_REPORT_PROMPT
     from agents.config.default_config import config
@@ -39,6 +39,9 @@ class PlannerNodes:
         # We use the modern LangChain Google GenAI integration (replaces ChatVertexAI)
         self.llm = ChatGoogleGenerativeAI(
             model=config.PLANNING_MODEL.replace("vertex_ai/", ""), # Remove the crewai vertex prefix if present
+            vertexai=True,
+            project=config.GOOGLE_CLOUD_PROJECT,
+            location=config.GOOGLE_CLOUD_LOCATION_REGIONAL,
             temperature=0,
         )
         # LLM bound to output our specific extraction schema
@@ -138,7 +141,10 @@ class PlannerNodes:
                 result = self.crew_engine.query(input=input_payload)
             else:
                 # Fallback: run CrewAI in-process (local dev)
-                from agents.executor.src.crew import LogisticsExecutionCrew
+                try:
+                    from ..executor.src.crew import LogisticsExecutionCrew
+                except ImportError:
+                    from agents.executor.src.crew import LogisticsExecutionCrew
                 crew = LogisticsExecutionCrew()
                 
                 # Bridge CrewAI's sync step_callback to our dashboard pusher

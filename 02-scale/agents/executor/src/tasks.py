@@ -20,7 +20,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from crewai import Task
-from config.prompts import EXECUTOR_TASK_PROMPTS
+try:
+    from ...config.prompts import EXECUTOR_TASK_PROMPTS
+except ImportError:
+    from config.prompts import EXECUTOR_TASK_PROMPTS
 
 class ProductCandidate(BaseModel):
     id: str = Field(description="Product ID")

@@ -1,0 +1,33 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install --no-cache-dir \
+    cloudpickle>=3.0.0 \
+    pydantic>=2.0.0 \
+    "crewai[litellm]" \
+    crewai-tools \
+    "mcp[cli]>=1.26.0" \
+    fastmcp>=3.1.1 \
+    python-dotenv \
+    "google-cloud-aiplatform>=1.146.0"
+
+# Fix: Remove CrewAI CLI template .py files that contain Jinja2 placeholders
+# (e.g. {{folder_name}}) and cause SyntaxError during compileall.
+# The CLI templates are not needed at runtime.
+RUN find /usr/local/lib/python3.13/site-packages/crewai/cli/templates \
+    -name "*.py" -delete 2>/dev/null; \
+    find /usr/local/lib/python3.13/site-packages/crewai/cli/templates \
+    -type d -name "{{*}}" -exec rm -rf {} + 2>/dev/null; \
+    echo "CrewAI CLI templates cleaned."
+
+# Copy agent code
+COPY agents/executor/agent.py /app/agent.py
+COPY agents/executor/src/ /app/src/
+COPY agents/config/ /app/agents/config/
+COPY mock_oms_mcp/ /app/mock_oms_mcp/
+
+ENV PYTHONPATH=/app
+
+EXPOSE 8080

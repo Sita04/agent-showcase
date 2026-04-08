@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.9 - DIAGNOSTIC MODE
-console.log('[DEBUG] Script v1.9 starting load...');
+// Scale Agents Dashboard Logic v1.10 - DIAGNOSTIC MODE
+console.log('[DEBUG] Script v1.10 starting load...');
 
 // Global state
 let currentSessionId = 'demo_session_1';
@@ -148,7 +148,7 @@ function appendMessage(content, sender, type = 'normal') {
 window.sendMessage = sendMessage;
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('[DEBUG] DOM Content Loaded - v1.9');
+    console.log('[DEBUG] DOM Content Loaded - v1.10');
     const input = document.getElementById('user-input');
     if (input) {
         input.addEventListener('keypress', (e) => {
