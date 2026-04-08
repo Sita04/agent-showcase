@@ -16,7 +16,9 @@
 # CUJ 2: Identity Shield — IAM Setup
 #
 # Creates service accounts and binds IAM roles for the Identity Shield demo.
-# The planning agent SA gets read-only access (no vector store write).
+# IMPORTANT: roles/aiplatform.user is not sufficient by itself to enforce the
+# CUJ 2 delete-index boundary. The deny policy (or a custom narrower role) is
+# what actually removes index mutation access from the planning agent.
 # The execution agent SA gets full access including vector store write.
 #
 # Prerequisites:
@@ -68,7 +70,9 @@ fi
 echo ""
 echo "--- Step 2: Granting IAM roles ---"
 
-# Planning Agent: Vertex AI User only (can call models, cannot modify indexes)
+# Planning Agent: Vertex AI User for model + Agent Engine access.
+# This role still includes index mutation permissions, so the deny policy
+# below is required to make the planner truly least-privilege for CUJ 2.
 echo "  Granting roles/aiplatform.user to ${PLANNING_SA}..."
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${PLANNING_SA_EMAIL}" \
@@ -130,15 +134,15 @@ else
   ]
 }
 POLICY
-    ) && echo "  Deny policy created." || echo "  WARNING: Deny policy creation failed (needs iam.denypolicies.create). The IAM role restriction (aiplatform.user only) is still effective — planning-agent-sa cannot delete indexes."
+    ) && echo "  Deny policy created." || echo "  WARNING: Deny policy creation failed (needs iam.denypolicies.create). CUJ 2 is NOT fully enforced without this deny policy or a narrower custom role, because roles/aiplatform.user still allows index mutation APIs."
 fi
 
 echo ""
 echo "=== IAM Setup Complete ==="
 echo ""
 echo "Planning Agent (${PLANNING_SA_EMAIL}):"
-echo "  - roles/aiplatform.user (can call Gemini models)"
-echo "  - DENIED: indexes.delete, indexes.update, indexEndpoints.delete, indexEndpoints.update"
+echo "  - roles/aiplatform.user (model + Agent Engine access)"
+echo "  - REQUIRES deny policy or custom role to block indexes.delete, indexes.update, indexEndpoints.delete, indexEndpoints.update"
 echo ""
 echo "Execution Agent (${EXECUTION_SA_EMAIL}):"
 echo "  - roles/aiplatform.user (can call Gemini models)"

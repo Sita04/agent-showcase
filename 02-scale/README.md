@@ -224,6 +224,35 @@ projects/761793285222/locations/us-central1/reasoningEngines/4212141634835447808
 
 Agent Engine startup logs reached `Application startup complete`, which confirms the patched CrewAI wheel and package import fixes are sufficient for runtime startup. The remaining follow-up is to verify the final bind to `execution-agent-sa`, since the current engine still reports the default Agent Engine service identity until that update is confirmed.
 
+That bind has now been verified live. The current execution crew engine reports:
+
+```text
+projects/761793285222/locations/us-central1/reasoningEngines/4212141634835447808
+effective_identity=execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com
+```
+
+#### Planning Agent Deployment Status
+
+The native LangGraph planning wrapper also now deploys successfully via `agent_engines.create()` after two fixes:
+
+1. Package the planner as `agents.planner.*` so remote startup can import the pickled wrapper.
+2. Set `serviceAccount` at create time so the planner boots under `planning-agent-sa` immediately, and initialize `ChatGoogleGenerativeAI` in explicit Vertex mode (`vertexai=True`, `project`, `location`) so Agent Engine uses ADC instead of requiring a Gemini API key.
+
+Current validated planner deployment:
+
+```text
+projects/761793285222/locations/us-central1/reasoningEngines/1293809076299366400
+effective_identity=planning-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com
+```
+
+However, the live destructive CUJ 2 probe is still **not** enforcing the intended IAM boundary yet. A real query against that planner returned a security report containing:
+
+```text
+WARNING: IAM allowed delete_index (index not found) — service account has excessive permissions!
+```
+
+This means deployment is working, but the planner identity is still allowed to attempt `delete_index`. The missing piece is a deny policy (or a narrower custom role). `roles/aiplatform.user` alone is **not** read-only for vector indexes.
+
 #### Deploying to Agent Engine
 
 ```bash
@@ -298,43 +327,44 @@ uv run pytest tests/e2e/ -v
 | **Cross-Framework Error Handling / Re-planning** (CUJ 3) | `agents/control_room/agent.py` | `tests/e2e/test_cuj3_replanning.py` | Tested |
 | **Identity Shield Graph** (CUJ 2 — routing + IAM check) | `agents/planner/graph.py` | `tests/integration/test_identity_shield.py` | Tested |
 | **Identity Shield Control Room** (CUJ 2 — security block handling) | `agents/control_room/agent.py` | `tests/e2e/test_cuj2_identity_shield.py` | Tested |
-| **Agent Engine Deployment** (Planning Agent) | `scripts/deploy_to_agent_engine.py` | — | Deployed (`reasoningEngines/7579541130434314240`) |
-| **Planning Agent AE Wrapper** (native LangGraph) | `agents/planner/agent.py` | — | Ready (pending crew deployment) |
-| **Execution Crew AE Wrapper** (native CrewAI) | `agents/executor/agent.py`, `scripts/build_patched_crewai_wheel.py` | — | Deployed (`reasoningEngines/4212141634835447808`; startup confirmed, SA bind pending verification) |
+| **Agent Engine Deployment** (Planning Agent) | `scripts/deploy_to_agent_engine.py` | — | Deployed (`reasoningEngines/1293809076299366400`) |
+| **Planning Agent AE Wrapper** (native LangGraph) | `agents/planner/agent.py` | — | Deployed (package import + serviceAccount-at-create fixes validated) |
+| **Execution Crew AE Wrapper** (native CrewAI) | `agents/executor/agent.py`, `scripts/build_patched_crewai_wheel.py` | — | Deployed (`reasoningEngines/4212141634835447808`; startup confirmed, `execution-agent-sa` verified) |
 | **Agent Engine IAM** (service accounts + role binding) | `scripts/setup_iam.sh` | — | Done (`planning-agent-sa`, `execution-agent-sa`) |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
 
 ## CUJ 2 Implementation Plan: Agent Identity via Agent Engine
 
-**Status:** All phases complete. Planning Agent deployed to Agent Engine with scoped IAM.
+**Status:** Deployment is working, but the live IAM boundary is not fully enforced yet.
 
 Agent Engine is active on `gcp-samples-ic0` (project `761793285222`, `us-central1`).
 
 ### Goal
 
-Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Planning Agent into deleting the vector index. Agent Engine intercepts the call and blocks it because the Planning Agent's service account lacks `Vector_Store_Write` permissions.
+Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Planning Agent into deleting the vector index. Agent Engine should block it because the Planning Agent's service account lacks `Vector_Store_Write` permissions.
 
 ### Phase 1: Deploy Agents to Agent Engine (DONE)
 
 1. **Created two service accounts** with distinct IAM roles (`scripts/setup_iam.sh`):
-   * `planning-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `roles/aiplatform.user` (read-only, no vector store write)
+   * `planning-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `roles/aiplatform.user` (model + Agent Engine access; not sufficient by itself to block index writes)
    * `execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `roles/aiplatform.user` + `roles/aiplatform.editor` (full access)
-2. **Deployed the Planning Agent** (LangGraph) to Agent Engine via `adk deploy agent_engine` (`scripts/deploy_to_agent_engine.py`)
-   * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/7579541130434314240`
-   * Bound to `planning-agent-sa` via `client.agent_engines.update()`
+2. **Deployed the Planning Agent** (LangGraph) to Agent Engine via native SDK wrapper deployment (`scripts/deploy_to_agent_engine.py`)
+   * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/1293809076299366400`
+   * Created directly with `serviceAccount=planning-agent-sa@...` so startup runs under the restricted identity
 3. **Control Room Agent** — **BLOCKED.** ADK `Workflow` (`google.adk.workflow`) is an alpha feature in `google-adk 2.0.0a2` that cannot be deployed via Agent Engine's source-based deployment (`adk deploy agent_engine`). BYOC deployment is now available (GA April 2026) but `Workflow` still lacks the serialization interface. The Control Room runs locally and calls the Planning Agent via A2A. The identity boundary is still enforced on the Planning Agent side.
 
-### Phase 2: Enforce IAM Boundaries (DONE)
+### Phase 2: Enforce IAM Boundaries (NOT COMPLETE)
 
-1. **IAM role separation**: `planning-agent-sa` has only `aiplatform.user`, which excludes `aiplatform.indexes.delete`. The execution SA has `aiplatform.editor` with full write access.
-2. **Optional IAM deny policy** (`deny-planning-agent-index-delete`): Requires `iam.denypolicies.create` permission. Belt-and-suspenders — not strictly needed since `aiplatform.user` already blocks index operations.
+1. **Project-level role separation alone is insufficient**: live inspection of `roles/aiplatform.user` shows it includes `aiplatform.indexes.delete`, `aiplatform.indexes.update`, and `aiplatform.reasoningEngines.get/query`.
+2. **Deny policy is currently missing**: `deny-planning-agent-index-delete` does not exist in `gcp-samples-ic0`, so the planner can still attempt `delete_index`.
+3. **What still needs to happen**: create the deny policy successfully (requires `iam.denypolicies.create`) or replace `roles/aiplatform.user` with a custom narrower role for the planning agent.
 
-### Phase 3: Implement & Test CUJ 2 (DONE)
+### Phase 3: Implement & Test CUJ 2 (PARTIALLY DONE)
 
 1. **Planner graph conditional routing** (`agents/planner/graph.py`):
    * `AlertExtraction` now includes `is_destructive` flag — LLM classifies destructive vs. legitimate intent
    * `route_after_analysis` routes destructive requests to security path, normal requests to delegation
-   * `attempt_forbidden_action` node calls `IndexServiceClient.delete_index()` — blocked by IAM (`PermissionDenied`)
+   * `attempt_forbidden_action` node calls `IndexServiceClient.delete_index()`
    * `generate_security_report` node produces an incident report
 2. **Control Room security block handling** (`agents/control_room/agent.py`):
    * Detects security violation keywords ("permission denied", "security violation", "blocked by iam", "identity shield")
@@ -344,9 +374,13 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
    * `PermissionDenied` capture in state
    * Security report generation
    * Full graph security path end-to-end
-4. **E2E test** (`tests/e2e/test_cuj2_identity_shield.py`):
+4. **Local / mocked E2E test** (`tests/e2e/test_cuj2_identity_shield.py`):
     * Control Room with mocked A2A security response
     * Asserts single A2A call (no retry) and `SECURITY BLOCK` outcome
+5. **Live Agent Engine probe (2026-04-09)**:
+   * Planner engine `reasoningEngines/1293809076299366400` runs as `planning-agent-sa`
+   * Execution crew engine `reasoningEngines/4212141634835447808` runs as `execution-agent-sa`
+   * Destructive prompt routes to the security path, but the planner receives `WARNING: IAM allowed delete_index (index not found)`, proving the deny boundary is still missing live
 
 ### CUJ 2 Prerequisites
 
@@ -357,12 +391,15 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 * [x] Control Room security block handling implemented and tested
 * [x] Service accounts created (`planning-agent-sa`, `execution-agent-sa`)
 * [x] IAM roles bound (`aiplatform.user` for planning, `aiplatform.editor` for execution)
-* [x] Planning Agent deployed to Agent Engine (`reasoningEngines/7579541130434314240`)
-* [x] Planning Agent SA bound (`planning-agent-sa` — read-only, no index delete)
+* [x] Execution Crew deployed to Agent Engine (`reasoningEngines/4212141634835447808`)
+* [x] Execution Crew effective identity verified (`execution-agent-sa`)
+* [x] Planning Agent deployed to Agent Engine (`reasoningEngines/1293809076299366400`)
+* [x] Planning Agent effective identity verified (`planning-agent-sa`)
 * [ ] **BLOCKED:** Deploy Control Room to Agent Engine — ADK `Workflow` is an alpha feature (`google-adk 2.0.0a2`) that doesn't serialize for Agent Engine's source-based deployment. BYOC is also still blocked in this project by the Agent Engine container deployment policy error: `One or more users named in the policy do not belong to a permitted customer.` Current options: (a) refactor to `LlmAgent` (loses Workflow demo), (b) deploy to Cloud Run instead, or (c) wait for ADK / platform support to change.
 * [x] ~~**RESOLVED:** Deploy Execution Crew (CrewAI) to Agent Engine~~ — Source deployment now bundles a patched local CrewAI wheel built by `scripts/build_patched_crewai_wheel.py`, stripping the problematic Jinja2 CLI template `.py` files before Agent Engine runs `compileall`. The current deployed engine is `projects/761793285222/locations/us-central1/reasoningEngines/4212141634835447808`, and startup has been verified in Agent Engine logs.
-* [ ] Redeploy Planning Agent natively (LangGraph via `agent_engines.create()`) — wrapper code ready in `agents/planner/agent.py`, blocked on crew deployment (planner calls crew via AE SDK).
-* [ ] IAM deny policy (optional — requires `iam.denypolicies.create` permission)
+* [x] Redeploy Planning Agent natively (LangGraph via `agent_engines.create()`) — planner now deploys as `projects/761793285222/locations/us-central1/reasoningEngines/1293809076299366400`
+* [ ] Live destructive CUJ 2 prompt blocked by IAM
+* [ ] IAM deny policy (required unless planning-agent-sa is moved to a custom narrower role)
 
 ## Architecture Gap Analysis
 
@@ -372,7 +409,7 @@ Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the cur
 | ---- | --------------------- | ------------- | --- |
 | **Execution Agents** | Supply Chain, Customer Support, Inventory agents | One generic logistics agent | Missing specialized agent swarm |
 | **External Systems** | ERP, CRM integrations on both sides | None | No ERP/CRM connectors |
-| **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Planning Agent deployed with `planning-agent-sa` (read-only); graph routes destructive requests to IAM-blocked path; Control Room handles security blocks | Control Room runs locally (Workflow serialization issue) |
+| **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Planning Agent and Execution Crew both run under their intended service accounts, but the planner can still attempt `delete_index` because the deny boundary is missing | Need deny policy or narrower custom role; Control Room still runs locally |
 | **Session Management** | Enhanced session management | Partially addressed via ADK 2.0 `InMemoryRunner` & `Session` | Need persistent remote session DB |
 | **Agent Engine** | Core Runtime hosting both layers | Planning Agent deployed to Agent Engine; Execution Crew deployed via patched-wheel source deployment | Control Room runs locally |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |

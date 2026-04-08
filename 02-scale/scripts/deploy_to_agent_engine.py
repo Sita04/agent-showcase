@@ -113,6 +113,7 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
     config = {
         "display_name": "Execution Crew (CUJ 2)",
         "staging_bucket": STAGING_BUCKET,
+        "serviceAccount": EXECUTION_SA,
         "requirements": [
             "cloudpickle>=3.0.0",
             "pydantic>=2.0.0",
@@ -173,8 +174,8 @@ def deploy_planning_agent(args: argparse.Namespace) -> str:
             "Execution Crew must be deployed first. Run with --crew-only first."
         )
 
-    sys.path.insert(0, os.path.join(SCALE_DIR, "agents", "planner"))
-    from agent import PlanningAgent
+    sys.path.insert(0, SCALE_DIR)
+    from agents.planner.agent import PlanningAgent
 
     agent = PlanningAgent(
         project_id=args.project,
@@ -188,6 +189,7 @@ def deploy_planning_agent(args: argparse.Namespace) -> str:
     config = {
         "display_name": "Planning Agent (Identity Shield - CUJ 2)",
         "staging_bucket": STAGING_BUCKET,
+        "serviceAccount": PLANNING_SA,
         "requirements": [
             "cloudpickle>=3.0.0",
             "pydantic>=2.0.0",
@@ -197,8 +199,7 @@ def deploy_planning_agent(args: argparse.Namespace) -> str:
             "google-cloud-aiplatform>=1.144",
         ],
         "extra_packages": [
-            os.path.join(SCALE_DIR, "agents", "planner"),
-            os.path.join(SCALE_DIR, "agents", "config"),
+            "agents",
         ],
     }
 

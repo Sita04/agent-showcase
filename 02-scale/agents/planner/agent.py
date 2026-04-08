@@ -55,7 +55,10 @@ class PlanningAgent:
             )
             crew_engine = client.agent_engines.get(name=self.crew_engine_id)
 
-        from graph import build_planner_graph
+        try:
+            from .graph import build_planner_graph
+        except ImportError:
+            from graph import build_planner_graph
         self._graph = build_planner_graph(crew_engine=crew_engine)
 
     def query(self, *, input: str) -> str:
@@ -67,7 +70,10 @@ class PlanningAgent:
         Returns:
             The final report from the planner.
         """
-        from state import PlanState
+        try:
+            from .state import PlanState
+        except ImportError:
+            from state import PlanState
         initial_state: PlanState = {"objective": input}
         final_state = self._graph.invoke(initial_state)
         return final_state.get("final_report", "No report generated.")
