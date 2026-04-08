@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scale Agents Control Room Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="glass-container">
+        <aside class="sidebar">
+            <header>
+                <h1>Scale Agents</h1>
+                <div class="subtitle">Control Room Dashboard</div>
+            </header>
+            
+            <div class="orchestration-graph">
+                <h3>Orchestration Flow</h3>
+                <div class="nodes">
+                    <div id="node-start" class="node active">
+                        <div class="node-icon">🚀</div>
+                        <span>START</span>
+                    </div>
+                    <div class="edge"></div>
+                    <div id="node-orchestrator" class="node">
+                        <div class="node-icon">🧠</div>
+                        <span>Orchestrator</span>
+                    </div>
+                    <div class="edge"></div>
+                    <div id="node-replanner" class="node">
+                        <div class="node-icon">💡</div>
+                        <span>Re-planner</span>
+                    </div>
+                    <div class="edge"></div>
+                    <div id="node-completed" class="node">
+                        <div class="node-icon">🏁</div>
+                        <span>COMPLETED</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-panel">
+                <h3>Session Status</h3>
+                <div class="status-item">
+                    <span class="label">Session ID:</span>
+                    <span id="session-id" class="value">demo_session_1</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Orchestrator:</span>
+                    <span id="orchestrator-status" class="value idle">Idle</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div id="chat-window" class="chat-window">
+                <!-- Messages will appear here -->
+            </div>
+
+            <div class="controls">
+                <div class="input-wrapper">
+                    <input type="text" id="user-input" placeholder="Enter inventory alert or logistics objective...">
+                    <button id="send-btn" class="send-btn">Dispatch</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
