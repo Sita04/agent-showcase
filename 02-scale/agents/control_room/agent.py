@@ -58,7 +58,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client: 
+            async with httpx.AsyncClient(timeout=600.0) as client:
                 response = await client.post(f"{A2A_SERVER_URL}/", json=json_rpc_payload)
                 
                 if response.status_code != 200:
