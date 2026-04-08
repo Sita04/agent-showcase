@@ -44,6 +44,7 @@ PLANNING_SA = f"planning-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
 EXECUTION_SA = f"execution-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
 
 STAGING_BUCKET = f"gs://staging.{PROJECT_ID}.appspot.com"
+CONTAINER_REGISTRY = f"{REGION}-docker.pkg.dev/{PROJECT_ID}/agent-showcase"
 
 SCALE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 METADATA_FILE = os.path.join(SCALE_DIR, "deployment_metadata.json")
@@ -75,10 +76,32 @@ def _bind_service_account(
 # Execution Crew (CrewAI) — deployed via Python SDK
 # ---------------------------------------------------------------------------
 
+def _build_and_push_image(dockerfile: str, image_tag: str) -> str:
+    """Build a Docker image and push it to Artifact Registry."""
+    image_uri = f"{CONTAINER_REGISTRY}/{image_tag}"
+    print(f"  Building image: {image_uri}")
+    subprocess.run(
+        ["docker", "build", "-f", dockerfile, "-t", image_uri, "."],
+        cwd=SCALE_DIR,
+        check=True,
+    )
+    print(f"  Pushing image: {image_uri}")
+    subprocess.run(["docker", "push", image_uri], check=True)
+    return image_uri
+
+
 def deploy_execution_crew(args: argparse.Namespace) -> str:
-    """Deploy the CrewAI Execution Crew as a custom agent."""
-    print("\n=== Deploying Execution Crew (CrewAI) ===")
+    """Deploy the CrewAI Execution Crew via container image.
+
+    Uses BYOC (Bring Your Own Container) deployment to avoid the compileall
+    issue with CrewAI's CLI template files. The Dockerfile strips the
+    problematic Jinja2 .py templates after pip install.
+    """
+    print("\n=== Deploying Execution Crew (CrewAI via BYOC) ===")
     print(f"  Service Account: {EXECUTION_SA}")
+
+    dockerfile = os.path.join(SCALE_DIR, "Dockerfile.execution-crew")
+    image_uri = _build_and_push_image(dockerfile, "execution-crew:latest")
 
     sys.path.insert(0, os.path.join(SCALE_DIR, "agents", "executor"))
     from agent import ExecutionCrewAgent
@@ -90,24 +113,8 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
     existing_id = metadata.get("crew_agent_engine_id") if not args.force else None
 
     config = {
-        "display_name": "Execution Crew (CUJ 2)",
-        "staging_bucket": STAGING_BUCKET,
-        "requirements": [
-            "cloudpickle>=3.0.0",
-            "pydantic>=2.0.0",
-            "crewai[litellm]",
-            "crewai-tools",
-            "mcp[cli]>=1.26.0",
-            "fastmcp>=3.1.1",
-            "python-dotenv",
-            "google-cloud-aiplatform>=1.144",
-        ],
-        "extra_packages": [
-            os.path.join(SCALE_DIR, "agents", "executor", "agent.py"),
-            os.path.join(SCALE_DIR, "agents", "executor", "src"),
-            os.path.join(SCALE_DIR, "agents", "config"),
-            os.path.join(SCALE_DIR, "mock_oms_mcp"),
-        ],
+        "display_name": "Execution Crew (CUJ 2 — BYOC)",
+        "container_uri": image_uri,
     }
 
     if existing_id:
@@ -126,6 +133,7 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
 
     metadata["crew_agent_engine_id"] = resource_name
     metadata["crew_agent_sa"] = EXECUTION_SA
+    metadata["crew_image_uri"] = image_uri
     save_metadata(metadata)
     return resource_name
 

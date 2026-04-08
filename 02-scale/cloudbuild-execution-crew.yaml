@@ -1,0 +1,12 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.execution-crew'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/agent-showcase/execution-crew:latest'
+      - '.'
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/agent-showcase/execution-crew:latest'
+timeout: 600s
