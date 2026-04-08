@@ -42,7 +42,10 @@ class ExecutionCrewAgent:
         os.environ.setdefault("VERTEXAI_PROJECT", self.project_id)
         os.environ.setdefault("VERTEXAI_LOCATION", "global")
 
-        from src.crew import LogisticsExecutionCrew
+        try:
+            from .src.crew import LogisticsExecutionCrew
+        except ImportError:
+            from src.crew import LogisticsExecutionCrew
         self._crew_class = LogisticsExecutionCrew
 
     def query(self, *, input: str) -> str:

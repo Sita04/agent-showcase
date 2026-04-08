@@ -193,26 +193,36 @@ Scripts for deploying agents to Agent Engine with scoped IAM service accounts.
 #### Prerequisites
 
 * **gcloud** CLI authenticated (`gcloud auth login`)
-* **Artifact Registry** repo created (one-time):
-  ```bash
-  gcloud artifacts repositories create agent-showcase \
-    --repository-format=docker \
-    --location=us-central1 \
-    --description="Container images for agent-showcase demo"
-  ```
+* **CrewAI installed locally** in the repo environment (`uv sync`)
 
-#### Building the Execution Crew Container (BYOC)
+#### Building the Patched CrewAI Wheel
 
-The Execution Crew uses BYOC (Bring Your Own Container) deployment to work around a [CrewAI `compileall` issue](https://github.com/crewAIInc/crewAI/issues/XXXX) where Jinja2 template `.py` files under `crewai/cli/templates/` cause `SyntaxError` during Agent Engine's source-based build. The `Dockerfile.execution-crew` installs CrewAI and strips these template files before runtime.
+The Execution Crew now uses Agent Engine source deployment with a locally patched CrewAI wheel. This works around the CrewAI `compileall` issue where Jinja2 template `.py` files under `crewai/cli/templates/` cause `SyntaxError` during Agent Engine builds.
 
 ```bash
-# Build and push the image via Cloud Build
-gcloud builds submit \
-  --config=cloudbuild-execution-crew.yaml \
-  .
+# Build the patched wheel into 02-scale/vendor/
+uv run scripts/build_patched_crewai_wheel.py
 ```
 
-This builds `us-central1-docker.pkg.dev/$PROJECT_ID/agent-showcase/execution-crew:latest` and pushes it to Artifact Registry.
+#### BYOC Status
+
+BYOC remains blocked in this project. A direct Agent Engine `container_spec.image_uri` probe against `us-central1-docker.pkg.dev/gcp-samples-ic0/agent-showcase/execution-crew:latest` still fails with:
+
+```text
+One or more users named in the policy do not belong to a permitted customer.
+```
+
+So the CrewAI deployment now uses the patched-wheel source path instead of BYOC.
+
+#### Patched-Wheel Deployment Status
+
+The patched-wheel source deployment path has now been tested successfully. The Execution Crew starts on Agent Engine as:
+
+```text
+projects/761793285222/locations/us-central1/reasoningEngines/4212141634835447808
+```
+
+Agent Engine startup logs reached `Application startup complete`, which confirms the patched CrewAI wheel and package import fixes are sufficient for runtime startup. The remaining follow-up is to verify the final bind to `execution-agent-sa`, since the current engine still reports the default Agent Engine service identity until that update is confirmed.
 
 #### Deploying to Agent Engine
 
@@ -220,7 +230,7 @@ This builds `us-central1-docker.pkg.dev/$PROJECT_ID/agent-showcase/execution-cre
 # Step 1: Create service accounts and bind IAM roles
 bash scripts/setup_iam.sh
 
-# Step 2: Deploy the Execution Crew via BYOC container image
+# Step 2: Deploy the Execution Crew via source deployment + patched CrewAI wheel
 uv run scripts/deploy_to_agent_engine.py --crew-only
 
 # Step 3: Deploy the Planning Agent to Agent Engine
@@ -290,7 +300,7 @@ uv run pytest tests/e2e/ -v
 | **Identity Shield Control Room** (CUJ 2 — security block handling) | `agents/control_room/agent.py` | `tests/e2e/test_cuj2_identity_shield.py` | Tested |
 | **Agent Engine Deployment** (Planning Agent) | `scripts/deploy_to_agent_engine.py` | — | Deployed (`reasoningEngines/7579541130434314240`) |
 | **Planning Agent AE Wrapper** (native LangGraph) | `agents/planner/agent.py` | — | Ready (pending crew deployment) |
-| **Execution Crew AE Wrapper** (native CrewAI) | `agents/executor/agent.py`, `Dockerfile.execution-crew` | — | Ready (BYOC deployment bypasses `compileall` issue) |
+| **Execution Crew AE Wrapper** (native CrewAI) | `agents/executor/agent.py`, `scripts/build_patched_crewai_wheel.py` | — | Deployed (`reasoningEngines/4212141634835447808`; startup confirmed, SA bind pending verification) |
 | **Agent Engine IAM** (service accounts + role binding) | `scripts/setup_iam.sh` | — | Done (`planning-agent-sa`, `execution-agent-sa`) |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
 
@@ -349,8 +359,8 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 * [x] IAM roles bound (`aiplatform.user` for planning, `aiplatform.editor` for execution)
 * [x] Planning Agent deployed to Agent Engine (`reasoningEngines/7579541130434314240`)
 * [x] Planning Agent SA bound (`planning-agent-sa` — read-only, no index delete)
-* [ ] **BLOCKED:** Deploy Control Room to Agent Engine — ADK `Workflow` is an alpha feature (`google-adk 2.0.0a2`) that doesn't serialize for Agent Engine's source-based deployment. Options: (a) refactor to `LlmAgent` (loses Workflow demo), (b) deploy to Cloud Run instead, (c) deploy via BYOC container image, or (d) wait for ADK to add Workflow serialization support.
-* [x] ~~**RESOLVED:** Deploy Execution Crew (CrewAI) to Agent Engine~~ — Agent Engine now supports BYOC (Dockerfile / container image) deployment (GA April 2026). The `Dockerfile.execution-crew` installs CrewAI and strips the problematic Jinja2 CLI template files before runtime, bypassing the `compileall` `SyntaxError`.
+* [ ] **BLOCKED:** Deploy Control Room to Agent Engine — ADK `Workflow` is an alpha feature (`google-adk 2.0.0a2`) that doesn't serialize for Agent Engine's source-based deployment. BYOC is also still blocked in this project by the Agent Engine container deployment policy error: `One or more users named in the policy do not belong to a permitted customer.` Current options: (a) refactor to `LlmAgent` (loses Workflow demo), (b) deploy to Cloud Run instead, or (c) wait for ADK / platform support to change.
+* [x] ~~**RESOLVED:** Deploy Execution Crew (CrewAI) to Agent Engine~~ — Source deployment now bundles a patched local CrewAI wheel built by `scripts/build_patched_crewai_wheel.py`, stripping the problematic Jinja2 CLI template `.py` files before Agent Engine runs `compileall`. The current deployed engine is `projects/761793285222/locations/us-central1/reasoningEngines/4212141634835447808`, and startup has been verified in Agent Engine logs.
 * [ ] Redeploy Planning Agent natively (LangGraph via `agent_engines.create()`) — wrapper code ready in `agents/planner/agent.py`, blocked on crew deployment (planner calls crew via AE SDK).
 * [ ] IAM deny policy (optional — requires `iam.denypolicies.create` permission)
 
@@ -364,7 +374,7 @@ Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the cur
 | **External Systems** | ERP, CRM integrations on both sides | None | No ERP/CRM connectors |
 | **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Planning Agent deployed with `planning-agent-sa` (read-only); graph routes destructive requests to IAM-blocked path; Control Room handles security blocks | Control Room runs locally (Workflow serialization issue) |
 | **Session Management** | Enhanced session management | Partially addressed via ADK 2.0 `InMemoryRunner` & `Session` | Need persistent remote session DB |
-| **Agent Engine** | Core Runtime hosting both layers | Planning Agent deployed to Agent Engine; Execution Crew deployable via BYOC | Control Room runs locally |
+| **Agent Engine** | Core Runtime hosting both layers | Planning Agent deployed to Agent Engine; Execution Crew deployed via patched-wheel source deployment | Control Room runs locally |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
 | **Multiple MCP connections** | MCP on both planning and execution sides | MCP only on execution side | Planning Agent has no MCP tools |
 
@@ -379,7 +389,7 @@ Priority is based on **impact** (how much it improves the demo), **ease** (effor
 | Priority | Feature | Availability | Used in Demo | Use Case in This Scenario |
 | -------- | ------- | ------------ | ------------ | ------------------------- |
 | **P0** | Resource level IAM binding | GA | Yes — `planning-agent-sa` (read-only) vs `execution-agent-sa` (full) | CUJ 2: restrict the Planning Agent's identity so it cannot access the vector store directly |
-| **P1** | Bring Your Own Container (BYOC) | GA | Yes — `Dockerfile.execution-crew` | Package CrewAI + MCP into a custom container, stripping CLI templates that break `compileall` |
+| **P1** | Bring Your Own Container (BYOC) | GA | Blocked in current project | A live probe against the CrewAI image still fails with the Agent Engine policy error: `One or more users named in the policy do not belong to a permitted customer` |
 | **P1** | Performance: fast cold starts and provisioning | GA | Not yet | Reduce latency when spinning up the Planning Agent on incoming inventory alerts |
 | **P2** | Bi-directional streaming | GA | Not yet | Stream real-time progress updates (sourcing status, budget checks) back to the dashboard |
 | **P2** | Versioning & traffic control | GA | Not yet | Canary-deploy updated planner prompts or executor logic, roll back if PO accuracy drops |

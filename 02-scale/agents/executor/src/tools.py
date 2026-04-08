@@ -19,7 +19,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 from crewai_tools import MCPServerAdapter
 from mcp import StdioServerParameters
-from config.default_config import config
+try:
+    from ...config.default_config import config
+except ImportError:
+    from config.default_config import config
 
 VECTOR_SEARCH_MCP_URL = "https://ac-web2-761793285222.us-central1.run.app/mcp"
 

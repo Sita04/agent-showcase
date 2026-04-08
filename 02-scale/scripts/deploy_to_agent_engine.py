@@ -38,16 +38,18 @@ import sys
 
 import vertexai
 
+from build_patched_crewai_wheel import build_patched_wheel
+
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "gcp-samples-ic0")
 REGION = "us-central1"
 PLANNING_SA = f"planning-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
 EXECUTION_SA = f"execution-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
 
 STAGING_BUCKET = f"gs://staging.{PROJECT_ID}.appspot.com"
-CONTAINER_REGISTRY = f"{REGION}-docker.pkg.dev/{PROJECT_ID}/agent-showcase"
 
 SCALE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 METADATA_FILE = os.path.join(SCALE_DIR, "deployment_metadata.json")
+VENDOR_DIR = os.path.join(SCALE_DIR, "vendor")
 
 
 def load_metadata() -> dict:
@@ -76,46 +78,63 @@ def _bind_service_account(
 # Execution Crew (CrewAI) — deployed via Python SDK
 # ---------------------------------------------------------------------------
 
-def _build_and_push_image(dockerfile: str, image_tag: str) -> str:
-    """Build a Docker image and push it to Artifact Registry."""
-    image_uri = f"{CONTAINER_REGISTRY}/{image_tag}"
-    print(f"  Building image: {image_uri}")
-    subprocess.run(
-        ["docker", "build", "-f", dockerfile, "-t", image_uri, "."],
-        cwd=SCALE_DIR,
-        check=True,
-    )
-    print(f"  Pushing image: {image_uri}")
-    subprocess.run(["docker", "push", image_uri], check=True)
-    return image_uri
+def _relative_to_scale(path: str) -> str:
+    """Convert an absolute repo path into the relative path Agent Engine expects."""
+    return os.path.relpath(path, SCALE_DIR)
+
+
+def _ensure_patched_crewai_wheel(custom_path: str = "") -> str:
+    """Build or reuse the patched CrewAI wheel bundled with the deployment."""
+    if custom_path:
+        wheel_path = os.path.abspath(custom_path)
+        if not os.path.exists(wheel_path):
+            raise FileNotFoundError(f"Patched CrewAI wheel not found: {wheel_path}")
+    else:
+        wheel_path = str(build_patched_wheel(VENDOR_DIR))
+
+    return _relative_to_scale(wheel_path)
 
 
 def deploy_execution_crew(args: argparse.Namespace) -> str:
-    """Deploy the CrewAI Execution Crew via container image.
+    """Deploy the CrewAI Execution Crew via source deployment.
 
-    Uses BYOC (Bring Your Own Container) deployment to avoid the compileall
-    issue with CrewAI's CLI template files. The Dockerfile strips the
-    problematic Jinja2 .py templates after pip install.
+    Agent Engine source builds run ``compileall`` across installed packages.
+    CrewAI ships Jinja2-backed CLI template Python files that break that step.
+    This path bundles a patched CrewAI wheel that strips those templates first.
     """
-    print("\n=== Deploying Execution Crew (CrewAI via BYOC) ===")
+    print("\n=== Deploying Execution Crew (CrewAI via patched wheel) ===")
     print(f"  Service Account: {EXECUTION_SA}")
-
-    dockerfile = os.path.join(SCALE_DIR, "Dockerfile.execution-crew")
-    image_uri = _build_and_push_image(dockerfile, "execution-crew:latest")
-
-    sys.path.insert(0, os.path.join(SCALE_DIR, "agents", "executor"))
-    from agent import ExecutionCrewAgent
-
-    agent = ExecutionCrewAgent(project_id=args.project, region=args.region)
 
     client = vertexai.Client(project=args.project, location=args.region)
     metadata = load_metadata()
     existing_id = metadata.get("crew_agent_engine_id") if not args.force else None
+    patched_wheel = _ensure_patched_crewai_wheel(args.crewai_wheel)
 
     config = {
-        "display_name": "Execution Crew (CUJ 2 — BYOC)",
-        "container_uri": image_uri,
+        "display_name": "Execution Crew (CUJ 2)",
+        "staging_bucket": STAGING_BUCKET,
+        "requirements": [
+            "cloudpickle>=3.0.0",
+            "pydantic>=2.0.0",
+            patched_wheel,
+            "litellm>=1.74.9",
+            "crewai-tools==1.6.1",
+            "mcp[cli]>=1.26.0",
+            "fastmcp>=3.1.1",
+            "python-dotenv",
+            "google-cloud-aiplatform>=1.144",
+        ],
+        "extra_packages": [
+            patched_wheel,
+            "agents",
+            "mock_oms_mcp",
+        ],
     }
+
+    sys.path.insert(0, SCALE_DIR)
+    from agents.executor.agent import ExecutionCrewAgent
+
+    agent = ExecutionCrewAgent(project_id=args.project, region=args.region)
 
     if existing_id:
         print(f"  Updating existing engine: {existing_id}")
@@ -133,7 +152,7 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
 
     metadata["crew_agent_engine_id"] = resource_name
     metadata["crew_agent_sa"] = EXECUTION_SA
-    metadata["crew_image_uri"] = image_uri
+    metadata["crewai_patched_wheel"] = patched_wheel
     save_metadata(metadata)
     return resource_name
 
@@ -340,6 +359,11 @@ def main():
     )
     parser.add_argument("--force", action="store_true", help="Force create new engines")
     parser.add_argument("--crew-only", action="store_true", help="Deploy only Execution Crew")
+    parser.add_argument(
+        "--crewai-wheel",
+        default="",
+        help="Path to a prebuilt patched CrewAI wheel. If omitted, one is generated locally.",
+    )
     parser.add_argument(
         "--planning-only", action="store_true", help="Deploy only Planning Agent"
     )

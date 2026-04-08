@@ -19,6 +19,7 @@ gha-creds-*.json
 local/
 node_modules
 dist
+02-scale/vendor/*.whl
 local/  
 recaps/
 plans/
