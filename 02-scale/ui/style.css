@@ -213,6 +213,13 @@ h3 {
     background: rgba(239, 68, 68, 0.05);
 }
 
+.message.agent.execution {
+    border-left: 4px solid var(--secondary-color);
+    background: rgba(16, 185, 129, 0.05);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+}
+
 /* Artifact Rendering */
 .artifact {
     margin-top: 1rem;
@@ -267,6 +274,17 @@ input[type="text"]:focus {
     background: #2563eb;
     transform: translateY(-2px);
     box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.4);
+}
+
+.send-btn.pulse-error {
+    animation: shake 0.5s ease-in-out;
+    background-color: #ef4444 !important;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
 }
 
 /* Markdown styling in messages */

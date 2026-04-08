@@ -35,7 +35,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("PlannerAgent")
 
 class PlannerNodes:
-    def __init__(self, crew_engine=None):
+    def __init__(self, crew_engine=None, on_update=None):
         # We use the modern LangChain Google GenAI integration (replaces ChatVertexAI)
         self.llm = ChatGoogleGenerativeAI(
             model=config.PLANNING_MODEL.replace("vertex_ai/", ""), # Remove the crewai vertex prefix if present
@@ -45,10 +45,15 @@ class PlannerNodes:
         self.structured_llm = self.llm.with_structured_output(AlertExtraction)
         # Optional: handle to the Execution Crew on Agent Engine
         self.crew_engine = crew_engine
+        # Optional callback for real-time updates
+        self.on_update = on_update
         
-    def analyze_alert(self, state: PlanState) -> PlanState:
+    async def analyze_alert(self, state: PlanState) -> PlanState:
         """Node 1: Extract intent from the raw objective string."""
         logger.info("--- [Planner] Step 1: Analyzing Alert ---")
+        if self.on_update:
+            await self.on_update("Planner: Analyzing incoming alert...")
+        
         objective = state.get("objective", "")
         
         # Use structured LLM to parse the alert
@@ -77,13 +82,50 @@ class PlannerNodes:
             "malicious_intent": result.is_destructive,
         }
 
-    def delegate_to_executor(self, state: PlanState) -> PlanState:
+    async def delegate_to_executor(self, state: PlanState) -> PlanState:
         """Node 2: Call the CrewAI Execution Crew (via Agent Engine or in-process)."""
         logger.info("--- [Planner] Step 2: Delegating to Execution Swarm (CrewAI) ---")
-
+        
         task_description = state.get("item_description") or "Unknown Item"
         budget = state.get("max_budget") or 50.0
         quantity = state.get("quantity_needed") or 1
+
+        # Internal helper to push to dashboard
+        def push_to_dashboard(msg: str, name: str = "execution"):
+            try:
+                import requests
+                # Use synchronous requests here since we are in a node or thread
+                requests.post(
+                    "http://127.0.0.1:8000/api/push_status", 
+                    data={"name": name, "text": msg},
+                    timeout=1.0
+                )
+            except Exception:
+                pass 
+
+        # --- Real-time Thought Stream Integration ---
+        # Intercept CrewAI logs and pipe them to the dashboard
+        class DashboardCallbackHandler(logging.Handler):
+            def emit(self, record):
+                try:
+                    log_msg = self.format(record)
+                    # Filter for meaningful agent activity
+                    if any(x in log_msg for x in ["Working Agent:", "Action:", "Thought:", "Final Answer:"]):
+                        # Strip some of the internal formatting for cleaner UI
+                        clean_msg = log_msg.split(" - ")[-1] if " - " in log_msg else log_msg
+                        push_to_dashboard(clean_msg)
+                except Exception:
+                    pass
+
+        thought_handler = DashboardCallbackHandler()
+        thought_handler.setLevel(logging.INFO)
+        # Attach to both crewai and the root logger during execution
+        logging.getLogger("crewai").addHandler(thought_handler)
+
+        if self.on_update:
+            await self.on_update(f"Executor: Starting CrewAI for '{task_description}'...")
+        
+        push_to_dashboard(f"Starting CrewAI for '{task_description}'...")
 
         try:
             if self.crew_engine is not None:
@@ -98,11 +140,38 @@ class PlannerNodes:
                 # Fallback: run CrewAI in-process (local dev)
                 from agents.executor.src.crew import LogisticsExecutionCrew
                 crew = LogisticsExecutionCrew()
-                result = crew.run(
+                
+                # Bridge CrewAI's sync step_callback to our dashboard pusher
+                def crew_step_callback(step):
+                    agent_role = "Agent"
+                    if hasattr(step, 'agent'):
+                        agent_role = getattr(step.agent, 'role', 'Agent')
+                    
+                    # Capture specific tool usage if available
+                    tool_msg = ""
+                    if hasattr(step, 'tool'):
+                        tool_msg = f" using {step.tool}"
+                    
+                    msg = f"**{agent_role}**: Finished a step{tool_msg}."
+                    push_to_dashboard(msg)
+
+                # Use asyncio.to_thread to keep the event loop alive while CrewAI runs
+                import asyncio
+                result = await asyncio.to_thread(
+                    crew.run,
                     task_description=task_description,
                     budget=budget,
                     quantity=quantity,
+                    step_callback=crew_step_callback
                 )
+
+            if self.on_update:
+                await self.on_update("Executor: CrewAI task completed.")
+            
+            push_to_dashboard("CrewAI task completed successfully.")
+
+            # Clean up handler
+            logging.getLogger("crewai").removeHandler(thought_handler)
 
             return {
                 "current_step": "executed",
@@ -112,22 +181,22 @@ class PlannerNodes:
 
         except Exception as e:
             logger.error(f"Execution Swarm failed: {e}")
+            if self.on_update:
+                await self.on_update(f"Executor: Failed with error: {str(e)}")
             return {
                 "current_step": "executed",
                 "delegation_status": "failed",
                 "execution_result": f"Error: {str(e)}"
             }
 
-    def attempt_forbidden_action(self, state: PlanState) -> PlanState:
-        """CUJ 2 Node: Attempt a forbidden vector store operation.
-
-        When deployed to Agent Engine, the Planning Agent's service account
-        lacks Vector_Store_Write permissions, so this call is blocked by IAM.
-        """
+    async def attempt_forbidden_action(self, state: PlanState) -> PlanState:
+        """CUJ 2 Node: Attempt a forbidden vector store operation."""
         logger.info("--- [Planner] SECURITY: Attempting forbidden action (delete_index) ---")
+        if self.on_update:
+            await self.on_update("Security: Checking permissions for destructive action...")
+            
         project = config.GOOGLE_CLOUD_PROJECT
         location = "us-central1"
-        # Syntactically valid resource name — IAM check occurs before existence check
         index_name = f"projects/{project}/locations/{location}/indexes/0000000000000000000"
 
         try:
@@ -135,22 +204,17 @@ class PlannerNodes:
                 client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"}
             )
             client.delete_index(name=index_name)
-            # If we reach here, the SA had too many permissions — flag it
             return {
                 "current_step": "security_check",
                 "security_violation": "WARNING: delete_index succeeded — service account has excessive permissions!",
             }
         except (PermissionDenied, Forbidden) as e:
             logger.info(f"BLOCKED by IAM: {e}")
+            if self.on_update:
+                await self.on_update("Security: Identity Shield blocked the action!")
             return {
                 "current_step": "security_check",
                 "security_violation": f"Blocked by Identity Shield: {e}",
-            }
-        except NotFound:
-            # IAM allowed the call but the index doesn't exist — still proves SA has write perms
-            return {
-                "current_step": "security_check",
-                "security_violation": "WARNING: IAM allowed delete_index (index not found) — service account has excessive permissions!",
             }
         except Exception as e:
             logger.error(f"Unexpected error during security check: {e}")
@@ -159,9 +223,11 @@ class PlannerNodes:
                 "security_violation": f"Blocked: {e}",
             }
 
-    def generate_security_report(self, state: PlanState) -> PlanState:
+    async def generate_security_report(self, state: PlanState) -> PlanState:
         """CUJ 2 Node: Generate a security incident report after IAM rejection."""
         logger.info("--- [Planner] SECURITY: Generating Security Report ---")
+        if self.on_update:
+            await self.on_update("Planner: Synthesizing security incident report...")
 
         prompt = SECURITY_REPORT_PROMPT.format(
             objective=state.get("objective", "Unknown"),
@@ -175,9 +241,11 @@ class PlannerNodes:
             "final_report": str(response.content),
         }
 
-    def generate_report(self, state: PlanState) -> PlanState:
+    async def generate_report(self, state: PlanState) -> PlanState:
         """Node 3: Synthesize the final outcome."""
         logger.info("--- [Planner] Step 3: Generating Final Report ---")
+        if self.on_update:
+            await self.on_update("Planner: Synthesizing final procurement report...")
         
         prompt = REPORT_GENERATOR_PROMPT.format(
             objective=state.get("objective", "Unknown Objective"),
@@ -199,8 +267,8 @@ def route_after_analysis(state: PlanState) -> str:
 
 
 # Graph Construction
-def build_planner_graph(crew_engine=None):
-    nodes = PlannerNodes(crew_engine=crew_engine)
+def build_planner_graph(crew_engine=None, on_update=None):
+    nodes = PlannerNodes(crew_engine=crew_engine, on_update=on_update)
     workflow = StateGraph(PlanState)
 
     # Add Nodes

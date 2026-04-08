@@ -15,7 +15,7 @@
         <aside class="sidebar">
             <header>
                 <h1>Scale Agents</h1>
-                <div class="subtitle">Control Room Dashboard</div>
+                <div class="subtitle">Control Room Dashboard v1.9</div>
             </header>
             
             <div class="orchestration-graph">
@@ -64,11 +64,12 @@
             <div class="controls">
                 <div class="input-wrapper">
                     <input type="text" id="user-input" placeholder="Enter inventory alert or logistics objective...">
-                    <button id="send-btn" class="send-btn">Dispatch</button>
+                    <button id="send-btn" class="send-btn" onclick="if(window.sendMessage) { window.sendMessage(); } else { alert('JS not loaded'); }">Dispatch</button>
                 </div>
             </div>
         </main>
     </div>
-    <script src="app.js"></script>
+    <script>console.log('[DEBUG] v1.9 HTML Loaded');</script>
+    <script src="app.js?v=1.9"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 import asyncio
 from google.adk.runners import InMemoryRunner
 from google.genai import types
-from agent import ControlRoomAgent
+from agents.control_room.agent import ControlRoomAgent
 
 async def run_demo():
     prompt = "Inventory Alert: Northeast Region is critically low on 'Rare Japanese Anime Figure'. Please order 2 units ASAP. Max budget $50 per unit."

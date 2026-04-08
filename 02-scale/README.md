@@ -132,13 +132,20 @@ graph TD
 
 ### Scale Agents Control Room Dashboard
 
-The primary way to interact with the system is via the **Scale Agents Control Room Dashboard**. This UI visualizes the entire multi-agent orchestration process, including strategic planning, tactical execution, dynamic re-planning, and security enforcement.
+The primary way to interact with the system is via the **Scale Agents Control Room Dashboard**. This UI visualizes the entire multi-agent orchestration process in real-time using **Server-Sent Events (SSE)**.
 
 ![Scale Agents Control Room Dashboard](./assets/dashboard.png)
+
+**Key Features:**
+*   **Real-Time Thought Stream:** See "System" status updates and "Re-planner" logic as they happen, eliminating the "black box" wait during long multi-agent loops.
+*   **Orchestration Graph:** Visual highlighting of the active stage (Planning -> Executing -> Re-planning -> Completed).
+*   **Streaming Markdown:** Final reports and procurement data are rendered as they arrive.
+*   **Security Enforcement:** Instant "Identity Shield" alerts if a destructive action is blocked by IAM.
 
 To run the dashboard locally:
 
 1. **Start the A2A Planner Server**:
+
    ```bash
    export PYTHONPATH=.
    export PORT=8080
@@ -147,6 +154,7 @@ To run the dashboard locally:
 
 2. **Start the Dashboard App Server**:
    In a new terminal:
+
    ```bash
    export PYTHONPATH=.
    export PORT=8000

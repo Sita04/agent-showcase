@@ -45,27 +45,33 @@ class PlannerAgentExecutor(AgentExecutor):
         try:
             print(f"\n🚀 [A2A Executor] Triggering LangGraph with objective: '{objective}'")
             
-            # 1. Build the LangGraph workflow
-            graph = build_planner_graph()
+            # Define an update callback to stream artifacts during graph execution
+            async def on_graph_update(msg: str):
+                await updater.add_artifact([Part(root=TextPart(text=msg))], name="planner_step")
+
+            # 1. Build the LangGraph workflow with the callback
+            graph = build_planner_graph(on_update=on_graph_update)
             
             # 2. Set the initial state
             initial_state: PlanState = {"objective": objective}
             
-            # 3. Execute the graph asynchronously
-            # (LangGraph's ainvoke automatically handles sync nodes by running them in threads)
-            final_state = await graph.ainvoke(initial_state)
-            
-            # 4. Extract the final report
-            # Depending on how it's returned, it might be in the root state or nested under the node name
+            # 3. Execute the graph asynchronously with streaming
             final_report = "Execution completed, but no report was generated."
-            if "final_report" in final_state:
-                final_report = final_state["final_report"]
-            elif "generate_report" in final_state and "final_report" in final_state["generate_report"]:
-                final_report = final_state["generate_report"]["final_report"]
+            async for step in graph.astream(initial_state):
+                # Each 'step' is a dict of {node_name: state_delta}
+                for node_name, state in step.items():
+                    print(f"  [Planner] Node '{node_name}' finished.")
+                    
+                    # Also send a node completion artifact
+                    await on_graph_update(f"LangGraph: Node '{node_name}' finished.")
+                    
+                    # Update final report if it appears in the delta
+                    if "final_report" in state and state["final_report"]:
+                        final_report = state["final_report"]
 
             print(f"\n✅ [A2A Executor] LangGraph finished. Report preview: '{final_report[:100]}...'")
             
-            # 5. Send the result back to the calling agent
+            # 5. Send the final result back to the calling agent
             await updater.add_artifact([Part(root=TextPart(text=final_report))], name="orchestration_report")
             await updater.complete()
 
@@ -95,7 +101,7 @@ def main():
             version="1.0.0",
             default_input_modes=PlannerAgentExecutor.SUPPORTED_CONTENT_TYPES,
             default_output_modes=PlannerAgentExecutor.SUPPORTED_CONTENT_TYPES,
-            capabilities=AgentCapabilities(streaming=False),
+            capabilities=AgentCapabilities(streaming=True),
             skills=[
                 AgentSkill(
                     id="orchestrate_logistics",

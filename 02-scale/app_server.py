@@ -1,9 +1,12 @@
 import os
 import uvicorn
 import sys
+import json
+import asyncio
 from typing import Optional
 from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
 # Ensure we can import from agents/
@@ -17,7 +20,7 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.genai.types import Content as GenAIContent, Part as GenAIPart
 
-from agents.control_room.agent import ControlRoomAgent
+from agents.control_room.agent import ControlRoomAgent, dashboard_queue
 
 app = FastAPI(title="Scale Agents Control Room Dashboard")
 
@@ -30,6 +33,13 @@ _runner = InMemoryRunner(
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "message": "FastAPI is running"}
+
+@app.post("/api/push_status")
+async def push_status(name: str = Form(...), text: str = Form(...)):
+    """Callback for external processes to push updates to the dashboard."""
+    print(f"[DEBUG] Received status push: {name} - {text}")
+    await dashboard_queue.put({"type": "status", "name": name, "text": text})
+    return {"status": "ok"}
 
 @app.post("/api/chat")
 async def chat(prompt: Optional[str] = Form(None)):
@@ -51,35 +61,52 @@ async def chat(prompt: Optional[str] = Form(None)):
 
     new_message = GenAIContent(role="user", parts=parts)
     
-    events = []
-    # Run the workflow and collect outputs
-    async for event in _runner.run_async(
-        session_id=session_id,
-        user_id=user_id,
-        new_message=new_message
-    ):
-        event_data = {
-            "type": type(event).__name__,
-            "node_name": getattr(event, 'node_name', 'N/A'),
-            "output": getattr(event, 'output', None),
-        }
-        events.append(event_data)
-        print(f"[DEBUG] Event: {event_data}")
+    # Clear queue before starting
+    while not dashboard_queue.empty():
+        try:
+            dashboard_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
 
-    # Read session state to see final outcome
-    session = await _runner.session_service.get_session(
-        app_name="control_room_app",
-        user_id=user_id,
-        session_id=session_id
-    )
-    
-    final_outcome = session.state.get("final_outcome", "Workflow completed.")
+    async def event_generator():
+        # Task to run the ADK agent and pipe its events into the shared queue
+        async def run_agent():
+            try:
+                async for event in _runner.run_async(
+                    session_id=session_id,
+                    user_id=user_id,
+                    new_message=new_message
+                ):
+                    event_data = {
+                        "type": "adk_event",
+                        "event_type": type(event).__name__,
+                        "node_name": getattr(event, 'node_name', 'N/A'),
+                    }
+                    output = getattr(event, 'output', None)
+                    if output:
+                        event_data["output"] = output
+                    
+                    await dashboard_queue.put(event_data)
+            except Exception as e:
+                await dashboard_queue.put({"type": "status", "name": "error", "text": str(e)})
+            finally:
+                await dashboard_queue.put(None) # Sentinel to end stream
 
-    return {
-        "status": "success",
-        "final_outcome": final_outcome,
-        "events": events
-    }
+        asyncio.create_task(run_agent())
+
+        # Yield everything that comes into the queue
+        while True:
+            try:
+                # Use a timeout to send keep-alive pings
+                item = await asyncio.wait_for(dashboard_queue.get(), timeout=15.0)
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+            except asyncio.TimeoutError:
+                # Send SSE comment as keep-alive
+                yield ": keep-alive\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # Mount static files
 # Note: directory="ui" refers to 02-scale/ui/

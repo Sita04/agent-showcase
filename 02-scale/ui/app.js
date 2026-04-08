@@ -1,103 +1,158 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const sendBtn = document.getElementById('send-btn');
-    const userInput = document.getElementById('user-input');
-    const chatWindow = document.getElementById('chat-window');
-    const statusVal = document.getElementById('orchestrator-status');
+// Scale Agents Dashboard Logic v1.9 - DIAGNOSTIC MODE
+console.log('[DEBUG] Script v1.9 starting load...');
 
-    // Node elements for state visualization
+// Global state
+let currentSessionId = 'demo_session_1';
+
+async function sendMessage() {
+    console.log('[DEBUG] sendMessage() called');
+    lastMessageText = ''; // Clear deduplication for new request
+    const input = document.getElementById('user-input');
+    const btn = document.getElementById('send-btn');
+    const status = document.getElementById('orchestrator-status');
+    
+    if (!input || !btn) {
+        console.error('[DEBUG] Required DOM elements not found');
+        return;
+    }
+
+    const text = input.value.trim();
+    if (!text) {
+        console.log('[DEBUG] No text, ignoring');
+        return;
+    }
+
+    // Visual feedback
+    btn.disabled = true;
+    btn.textContent = 'Processing...';
+    if (status) status.textContent = 'Running...';
+
+    appendMessage(text, 'user');
+    input.value = '';
+
+    try {
+        const formData = new FormData();
+        formData.append('prompt', text);
+
+        console.log('[DEBUG] Fetching /api/chat...');
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) throw new Error('Server returned ' + response.status);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const jsonStr = line.replace('data: ', '').trim();
+                    if (!jsonStr) continue;
+                    try {
+                        const event = JSON.parse(jsonStr);
+                        console.log('[DEBUG] SSE Event:', event);
+                        handleEvent(event);
+                    } catch (e) {
+                        console.error('[DEBUG] JSON Parse Error:', e);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[DEBUG] Chat Error:', error);
+        appendMessage('Error: ' + error.message, 'agent', 'security');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Dispatch';
+        if (status) status.textContent = 'Idle';
+    }
+}
+
+function handleEvent(event) {
     const nodes = {
         'START': document.getElementById('node-start'),
         'control_room_orchestrator': document.getElementById('node-orchestrator'),
-        'replanner_agent': document.getElementById('node-replanner'),
         'COMPLETED': document.getElementById('node-completed')
     };
 
     function setActiveNode(nodeId) {
-        Object.values(nodes).forEach(node => node.classList.remove('active'));
-        if (nodes[nodeId]) {
+        Object.values(nodes).forEach(n => n && n.classList.remove('active'));
+        if (nodeId.startsWith('replanner_agent')) {
+            const replannerNode = document.getElementById('node-replanner');
+            if (replannerNode) replannerNode.classList.add('active');
+        } else if (nodes[nodeId]) {
             nodes[nodeId].classList.add('active');
-        } else if (nodeId.startsWith('replanner_agent')) {
-            nodes['replanner_agent'].classList.add('active');
         }
     }
 
-    function appendMessage(content, sender, type = 'normal') {
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `message ${sender} ${type}`;
-        
-        if (sender === 'agent') {
-            msgDiv.innerHTML = marked.parse(content);
-        } else {
-            msgDiv.textContent = content;
+    if (event.type === 'status') {
+        appendMessage(event.text, 'agent', event.name);
+        if (event.name === 'replanning') {
+            const replannerNode = document.getElementById('node-replanner');
+            if (replannerNode) {
+                Object.values(nodes).forEach(n => n && n.classList.remove('active'));
+                replannerNode.classList.add('active');
+            }
         }
-        
-        chatWindow.appendChild(msgDiv);
-        chatWindow.scrollTop = chatWindow.scrollHeight;
-    }
-
-    async function sendMessage() {
-        const text = userInput.value.trim();
-        if (!text) return;
-
-        appendMessage(text, 'user');
-        userInput.value = '';
-        
-        setActiveNode('control_room_orchestrator');
-        statusVal.textContent = 'Running...';
-        statusVal.className = 'value running';
-
-        try {
-            const formData = new FormData();
-            formData.append('prompt', text);
-
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) throw new Error(`Server error: ${response.status}`);
-
-            const data = await response.json();
-            
-            // Process Events for detailed visualization
-            data.events.forEach(event => {
-                if (event.node_name !== 'N/A') {
-                    setActiveNode(event.node_name);
-                }
-                
-                // If it's a replanning event, highlight it
-                if (event.node_name.startsWith('replanner_agent')) {
-                    appendMessage(`💡 **Re-planner Triggered:** Broadening objective...`, 'agent', 'replanning');
-                }
-            });
-
-            // Handle final outcome
-            const outcome = data.final_outcome;
-            let type = 'normal';
-            
-            if (outcome.includes('SECURITY BLOCK')) {
-                type = 'security';
-                setActiveNode('COMPLETED'); // End on security block
-            } else if (outcome.includes('Failed')) {
-                setActiveNode('COMPLETED');
-            } else {
+    } else if (event.type === 'adk_event') {
+        if (event.node_name && event.node_name !== 'N/A') setActiveNode(event.node_name);
+        if (event.output) {
+            const output = event.output;
+            const text = typeof output === 'string' ? output : (output.report || '');
+            if (text) {
+                appendMessage(text, 'agent', output.status === 'Blocked' ? 'security' : 'normal');
                 setActiveNode('COMPLETED');
             }
-
-            appendMessage(outcome, 'agent', type);
-            statusVal.textContent = 'Idle';
-            statusVal.className = 'value idle';
-
-        } catch (error) {
-            appendMessage(`Error: ${error.message}`, 'agent', 'security');
-            statusVal.textContent = 'Error';
-            statusVal.className = 'value idle';
-            setActiveNode('START');
         }
     }
+}
 
-    sendBtn.addEventListener('click', sendMessage);
-    userInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendMessage();
-    });
+let lastMessageText = '';
+
+function appendMessage(content, sender, type = 'normal') {
+    const chatWindow = document.getElementById('chat-window');
+    if (!chatWindow) return;
+    
+    // Normalize and deduplicate
+    const normalized = content.trim();
+    if (sender === 'agent' && normalized === lastMessageText) {
+        console.log('[DEBUG] Ignoring duplicate agent message');
+        return;
+    }
+    if (sender === 'agent') lastMessageText = normalized;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${sender} ${type}`;
+    
+    if (sender === 'agent' && window.marked) {
+        msgDiv.innerHTML = marked.parse(content);
+    } else {
+        msgDiv.textContent = content;
+    }
+    
+    chatWindow.appendChild(msgDiv);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
+// Expose globally
+window.sendMessage = sendMessage;
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('[DEBUG] DOM Content Loaded - v1.9');
+    const input = document.getElementById('user-input');
+    if (input) {
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    }
 });

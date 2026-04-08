@@ -40,7 +40,7 @@ class LogisticsExecutionCrew:
         self.agents = ExecutorAgents()
         self.tasks = ExecutorTasks()
 
-    def run(self, task_description: str, budget: float, quantity: int):
+    def run(self, task_description: str, budget: float, quantity: int, step_callback=None):
         """
         Executes a restock request.
         
@@ -48,6 +48,7 @@ class LogisticsExecutionCrew:
             task_description: The description of the item to restock (e.g., "Vintage Sci-Fi Mugs").
             budget: Maximum price per unit.
             quantity: Number of units to order.
+            step_callback: Optional callback for real-time progress.
         """
         # Connect to both MCP servers using an ExitStack to manage multiple context managers
         mcp_server = get_mcp_server()
@@ -95,7 +96,8 @@ class LogisticsExecutionCrew:
                 verbose=True,
                 memory=False,
                 planning=False,  # Disabled due to JSON parsing bugs in gemini-2.5-flash
-                embedder=vertex_embedder # type: ignore
+                embedder=vertex_embedder, # type: ignore
+                step_callback=step_callback
             )
 
             # Execute
