@@ -337,6 +337,43 @@ Returns structured JSON:
 | `search_time` | string | Backend query latency (e.g. `"0.04s"`) |
 | `index_type` | string | `"ANN"` (approximate nearest neighbor index) or `"kNN"` (brute-force scan) or `"N/A"` |
 
+#### `find_similar_items`
+
+Find visually similar products using a product's stored image embedding. Only works with the `mercari1m_mm2` dataset.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `item_id` | string (required) | - | Product ID (e.g. "m12345678901") |
+| `rows` | int | `10` | Number of results (1-100) |
+| `filter` | string | `""` | JSON metadata filter (see `search_products` for syntax) |
+
+Returns structured JSON:
+```json
+{
+  "source_item": {
+    "id": "m12345678901",
+    "name": "Vintage Coach Leather Bag",
+    "description": "Gently loved vintage Coach bag...",
+    "img_url": "https://u-mercari-images.mercdn.net/photos/m12345678901_1.jpg",
+    "url": "https://www.mercari.com/us/item/m12345678901/"
+  },
+  "results": [
+    {
+      "id": "m98765432101",
+      "name": "Coach Crossbody Bag",
+      "description": "Similar style Coach bag...",
+      "url": "https://www.mercari.com/us/item/m98765432101/",
+      "img_url": "https://u-mercari-images.mercdn.net/photos/m98765432101_1.jpg",
+      "price": 38.0,
+      "similarity": 0.8742
+    }
+  ],
+  "count": 10,
+  "search_time": "0.03s",
+  "index_type": "ANN"
+}
+```
+
 #### `generate_sample_query`
 
 Generate a random search query using Gemini. Useful for demos or exploring the catalog.
@@ -363,13 +400,14 @@ root_agent = LlmAgent(
     model="gemini-2.5-flash",
     name="product_search_agent",
     instruction="Help users find products in the Mercari catalog. "
-    "Use search_products to search and generate_sample_query for inspiration.",
+    "Use search_products to search, find_similar_items to find visually similar "
+    "products by item ID, and generate_sample_query for inspiration.",
     tools=[
         McpToolset(
             connection_params=StreamableHTTPConnectionParams(
                 url="https://ac-web2-761793285222.us-central1.run.app/mcp",
             ),
-            tool_filter=["search_products", "generate_sample_query"],
+            tool_filter=["search_products", "find_similar_items", "generate_sample_query"],
         )
     ],
 )
