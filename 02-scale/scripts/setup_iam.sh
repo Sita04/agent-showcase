@@ -149,6 +149,13 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --condition=None \
     --quiet > /dev/null
 
+echo "  Granting roles/serviceusage.serviceUsageConsumer to ${EXECUTION_SA}..."
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${EXECUTION_SA_EMAIL}" \
+    --role="roles/serviceusage.serviceUsageConsumer" \
+    --condition=None \
+    --quiet > /dev/null
+
 # --- Step 3: Create IAM Deny Policy for Planning Agent ---
 # This explicitly denies the planning agent from deleting vector indexes.
 echo ""
@@ -201,6 +208,7 @@ echo ""
 echo "Execution Agent (${EXECUTION_SA_EMAIL}):"
 echo "  - roles/aiplatform.user (can call Gemini models)"
 echo "  - roles/aiplatform.editor (full vector store access)"
+echo "  - roles/serviceusage.serviceUsageConsumer (required for downstream Google API usage)"
 echo ""
 echo "Control Room (${CONTROL_ROOM_SA_EMAIL}):"
 echo "  - ${PLANNING_ROLE} (Gemini + agent query permissions for Cloud Run orchestration)"

@@ -17,8 +17,11 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from crewai_tools import MCPServerAdapter
-from mcp import StdioServerParameters
+from contextlib import contextmanager
+
+from crewai.tools import tool
+from mcpadapt.core import MCPAdapt
+from mcpadapt.crewai_adapter import CrewAIAdapter
 try:
     from ...config.default_config import config
 except ImportError:
@@ -26,34 +29,47 @@ except ImportError:
 
 VECTOR_SEARCH_MCP_URL = "https://ac-web2-761793285222.us-central1.run.app/mcp"
 
-OMS_MCP_SERVER_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', '..', '..',
-                 'mock_oms_mcp', 'server.py')
-)
-
 def get_mcp_server():
-    """Create an MCPServerAdapter connected to the Vector Search MCP server."""
-    return MCPServerAdapter(
+    """Create an MCPAdapt bridge connected to the Vector Search MCP server."""
+    return MCPAdapt(
         {"url": VECTOR_SEARCH_MCP_URL, "transport": "streamable-http"},
-        "search_products",
+        CrewAIAdapter(),
+        connect_timeout=60,
     )
-
-def _resolve_oms_server_path() -> str:
-    """Resolve the Mock OMS server path, with fallback for Agent Engine."""
-    if os.path.exists(OMS_MCP_SERVER_PATH):
-        return OMS_MCP_SERVER_PATH
-    # Fallback: find via importlib (works when deployed via extra_packages)
-    import importlib.util
-    spec = importlib.util.find_spec("mock_oms_mcp.server")
-    if spec and spec.origin:
-        return spec.origin
-    return OMS_MCP_SERVER_PATH
 
 def get_mock_oms_mcp():
-    """Create an MCPServerAdapter connected to the Mock Order Management System MCP server."""
-    return MCPServerAdapter(
-        StdioServerParameters(
-            command=sys.executable,
-            args=[_resolve_oms_server_path()],
-        )
-    )
+    """Yield in-process mock OMS tools for Agent Engine compatibility.
+
+    The vector search MCP server remains remote and MCP-backed. The mock OMS is a
+    tiny local fake, so keeping it in-process avoids Agent Engine subprocess /
+    stdio MCP instability while preserving the same task semantics.
+    """
+
+    @tool("check_budget")
+    def check_budget(amount: float, category: str) -> dict:
+        """Check if a purchase amount is within the configured budget."""
+        limit = config.BUDGET_LIMIT
+        if amount <= limit:
+            return {"approved": True, "remaining": limit - amount}
+        return {"approved": False, "reason": f"Exceeds budget of ${limit}"}
+
+    @tool("create_purchase_order")
+    def create_purchase_order(
+        product_id: str,
+        quantity: int,
+        vendor_id: str = config.DEFAULT_VENDOR_ID,
+    ) -> dict:
+        """Create a mock purchase order for a product."""
+        return {
+            "status": "success",
+            "po_id": f"PO-{product_id}-{quantity}",
+            "message": (
+                f"Successfully ordered {quantity} units of {product_id} from {vendor_id}."
+            ),
+        }
+
+    @contextmanager
+    def _oms_tools_context():
+        yield [check_budget, create_purchase_order]
+
+    return _oms_tools_context()

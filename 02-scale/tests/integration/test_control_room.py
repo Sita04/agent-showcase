@@ -180,6 +180,26 @@ class TestControlRoomFailure:
         assert mock_stream.call_count == 2
         assert "Failed after 2 attempts" in ctx.state["final_outcome"]
 
+    @pytest.mark.asyncio
+    async def test_terminal_failure_does_not_replan(self):
+        ctx = _mock_ctx()
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.return_value = _a2a_response(
+                "**Final Report**\n\n"
+                "*   **Task Objective:** Restock 20 Mercari logo mugs for the Tokyo office.\n"
+                "*   **Status:** FAILURE\n"
+                "*   **Total Cost:** $400.00\n"
+                "*   **Purchase Order ID:** Not Issued\n"
+                "*   **Reason:** Over Budget"
+            )
+
+            result = await _run_node(ctx, "Restock 20 Mercari logo mugs for the Tokyo office.")
+
+        assert result["status"] == "Failed"
+        assert "Over Budget" in result["report"]
+        assert mock_stream.call_count == 1
+        ctx.run_node.assert_not_called()
+
 
 class TestControlRoomErrorHandling:
     """Network and protocol errors."""
@@ -236,9 +256,8 @@ class TestControlRoomErrorHandling:
 
             result = await _run_node(ctx, "Order mugs")
 
-        # "No report returned." doesn't contain failure keywords, so it should succeed
         assert result["status"] == "Success"
-        assert mock_stream.call_count == 1
+        assert mock_stream.call_count == 2
 
 
 class TestCreateReplannerAgent:

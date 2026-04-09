@@ -42,7 +42,7 @@ Recommended live prompts in the UI:
    ```
 
    Expected result right now:
-   The request reaches the live Cloud Run Control Room and Agent Engine planner / execution chain, but the execution reasoning engine still fails in the CrewAI MCP adapter with `You are missing the 'mcp' package` / `click.exceptions.Abort`.
+   The request now reaches the live Cloud Run Control Room and Agent Engine planner / execution chain end to end. For this exact prompt, the current live result is a business-rule failure from the mock OMS budget check: `Total Cost: $400.00`, `Purchase Order ID: Not Issued`, `Reason: Over Budget`.
 
 ## Setup Instructions
 
@@ -285,13 +285,14 @@ Validated live behavior:
 * A direct JSON-RPC `message/send` request to the planner bridge returns `200` and reaches the deployed planning reasoning engine
 * The destructive CUJ works end to end:
   Cloud Run Control Room -> Cloud Run planner A2A bridge -> Agent Engine planner -> security block report
-* A normal restock prompt also reaches the full chain, but the execution reasoning engine still fails before procurement completes
+* A normal restock prompt now reaches the full chain without the earlier `FAILED_PRECONDITION` / missing-`mcp` runtime error
+* The current live `Restock 20 Mercari logo mugs for the Tokyo office.` result is a mock business-policy failure: `Total Cost: $400.00`, `Purchase Order ID: Not Issued`, `Reason: Over Budget`
 
 Current live limitation:
 
-* The execution reasoning engine (`reasoningEngines/4212141634835447808`) still aborts in `crewai_tools.adapters.mcp_adapter.py`
-* The live logs show CrewAI prompting for the `mcp` package interactively (`click.exceptions.Abort`), so the Cloud Run path is working but the execution runtime is still not clean for the happy path
-* The Control Room currently wraps that failed procurement result with an outer `status: "Success"`; the workflow reached the planner / executor correctly, but the UI-level success heuristic still needs tightening for this failure shape
+* The exact `20`-mug demo prompt is no longer blocked by runtime wiring, but by the mock OMS budget policy
+* The Control Room still wraps failed procurement results with an outer `status: "Success"`; the workflow reached the planner / executor correctly, but the UI-level success heuristic still needs tightening for failure cases
+* The execution runtime fix currently relies on using direct `mcpadapt` for the remote vector-search MCP server and in-process mock OMS tools instead of the stdio-backed mock OMS MCP subprocess
 
 ### Agent Engine Deployment (CUJ 2: Identity Shield)
 
@@ -438,7 +439,7 @@ uv run pytest tests/e2e/ -v
 | **Identity Shield Control Room** (CUJ 2 — security block handling) | `agents/control_room/agent.py` | `tests/e2e/test_cuj2_identity_shield.py` | Tested |
 | **Agent Engine Deployment** (Planning Agent) | `scripts/deploy_to_agent_engine.py` | — | Deployed (`reasoningEngines/1293809076299366400`) |
 | **Planning Agent AE Wrapper** (native LangGraph) | `agents/planner/agent.py` | — | Deployed (package import + serviceAccount-at-create fixes validated) |
-| **Execution Crew AE Wrapper** (native CrewAI) | `agents/executor/agent.py`, `scripts/build_patched_crewai_wheel.py` | — | Deployed (`reasoningEngines/4212141634835447808`; startup confirmed, `execution-agent-sa` verified; live MCP runtime issue remains) |
+| **Execution Crew AE Wrapper** (native CrewAI) | `agents/executor/agent.py`, `scripts/build_patched_crewai_wheel.py` | — | Deployed (`reasoningEngines/4212141634835447808`; startup confirmed, `execution-agent-sa` verified; runtime path fixed, live 20-mug prompt currently fails as Over Budget) |
 | **Agent Engine IAM** (service accounts + role binding) | `scripts/setup_iam.sh` | — | Done (`planning-agent-sa`, `execution-agent-sa`) |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
 
@@ -456,7 +457,7 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 
 1. **Created three service accounts** with distinct IAM roles (`scripts/setup_iam.sh`):
    * `planning-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `projects/gcp-samples-ic0/roles/planningAgentRuntime` (custom least-privilege model + Agent Engine access)
-   * `execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `roles/aiplatform.user` + `roles/aiplatform.editor` (full access)
+   * `execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `roles/aiplatform.user` + `roles/aiplatform.editor` + `roles/serviceusage.serviceUsageConsumer` (full execution access, including downstream Google API usage)
    * `control-room-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `projects/gcp-samples-ic0/roles/planningAgentRuntime` (Cloud Run-hosted ADK 2.0 Workflow + Gemini access)
 2. **Deployed the Planning Agent** (LangGraph) to Agent Engine via native SDK wrapper deployment (`scripts/deploy_to_agent_engine.py`)
    * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/1293809076299366400`
@@ -502,7 +503,8 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
    * Control Room service: `https://scale-control-room-nhhfh7g7iq-uc.a.run.app`
    * Planner A2A bridge: `https://scale-planner-a2a-nhhfh7g7iq-uc.a.run.app`
    * Destructive prompt works end to end through Cloud Run -> planner bridge -> Agent Engine planner
-   * Normal procurement prompt reaches the execution reasoning engine but still fails there with a CrewAI MCP adapter runtime issue (`click.exceptions.Abort`)
+   * Execution runtime packaging / MCP startup issues were fixed live by switching the vector-search path to direct `mcpadapt`, replacing the stdio mock OMS MCP subprocess with in-process tools, and granting `roles/serviceusage.serviceUsageConsumer` to `execution-agent-sa`
+   * The live `Restock 20 Mercari logo mugs for the Tokyo office.` prompt now reaches business logic and returns `Over Budget` instead of `FAILED_PRECONDITION`
 
 ### CUJ 2 Prerequisites
 
@@ -519,8 +521,9 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 * [x] Planning Agent effective identity verified (`planning-agent-sa`)
 * [x] **Cloud Run path live for the Control Room** — `app_server.py` now hosts the ADK 2.0 `Workflow` on Cloud Run, and the live planner bridge forwards to the deployed planning reasoning engine
 * [x] Live destructive CUJ through Cloud Run Control Room -> Cloud Run planner bridge -> Agent Engine planner
-* [ ] Happy-path Cloud Run E2E — blocked by the execution reasoning engine's MCP adapter runtime issue (`You are missing the 'mcp' package` / `click.exceptions.Abort`)
-* [ ] **BLOCKED:** Deploy Control Room to Agent Engine — ADK `Workflow` is still an alpha feature (`google-adk 2.0.0a2`) that doesn't serialize for Agent Engine's source-based deployment. BYOC is also still blocked in this project by the Agent Engine container deployment policy error: `One or more users named in the policy do not belong to a permitted customer.`
+* [x] Execution runtime no longer fails with `FAILED_PRECONDITION` / missing-`mcp` packaging errors
+* [ ] Exact `20`-mug live demo prompt — currently fails mock budget policy as `Over Budget`
+* [ ] **TODO:** Deploy Control Room to Agent Engine — the live demo uses Cloud Run for the ADK 2.0 `Workflow` today. Agent Engine source deployment for `google.adk.workflow.Workflow` has not been adopted here, and BYOC for this project remains affected by the Agent Engine container deployment policy error: `One or more users named in the policy do not belong to a permitted customer.`
 * [x] ~~**RESOLVED:** Deploy Execution Crew (CrewAI) to Agent Engine~~ — Source deployment now bundles a patched local CrewAI wheel built by `scripts/build_patched_crewai_wheel.py`, stripping the problematic Jinja2 CLI template `.py` files before Agent Engine runs `compileall`. The current deployed engine is `projects/761793285222/locations/us-central1/reasoningEngines/4212141634835447808`, and startup has been verified in Agent Engine logs.
 * [x] Redeploy Planning Agent natively (LangGraph via `agent_engines.create()`) — planner now deploys as `projects/761793285222/locations/us-central1/reasoningEngines/1293809076299366400`
 * [x] Live destructive CUJ 2 prompt blocked by IAM

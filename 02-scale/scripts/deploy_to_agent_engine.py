@@ -121,6 +121,7 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
             "litellm>=1.74.9",
             "crewai-tools==1.6.1",
             "mcp[cli]>=1.26.0",
+            "mcpadapt>=0.1.20",
             "fastmcp>=3.1.1",
             "python-dotenv",
             "google-cloud-aiplatform>=1.144",

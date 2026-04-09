@@ -19,6 +19,57 @@ dashboard_queue = asyncio.Queue()
 async def emit_status(name: str, text: str):
     await dashboard_queue.put({"type": "status", "name": name, "text": text})
 
+
+def _classify_report(report: str) -> tuple[bool, bool]:
+    """Return ``(is_success, should_retry)`` for a planner/executor report."""
+    normalized = (report or "").strip().lower()
+
+    success_markers = [
+        "status: success",
+        "outcome: success",
+        "success: po-",
+        "successfully ordered",
+        "po_id",
+        "purchase order id: po-",
+    ]
+    retryable_failure_markers = [
+        "not found",
+        "discontinued",
+        "no inventory",
+        "a2a server error",
+        "connection error",
+        "internal server error",
+        "no report returned",
+    ]
+    terminal_failure_markers = [
+        "status: failed",
+        "status: failure",
+        "outcome: failed",
+        "reason for failure",
+        "failed_precondition",
+        "internal system error",
+        "connection issue",
+        "over budget",
+        "purchase order id: n/a",
+        "purchase order id:** n/a",
+        "purchase order id: not issued",
+        "not issued",
+        "procurement failed",
+        "could not be completed",
+        "could not be processed",
+        "failed due to",
+        "error when invoking agent engine",
+    ]
+
+    if any(marker in normalized for marker in terminal_failure_markers):
+        return False, False
+    if any(marker in normalized for marker in retryable_failure_markers):
+        return False, True
+    if any(marker in normalized for marker in success_markers):
+        return True, False
+    # Bias toward surfacing unknown outcomes as failures rather than false success.
+    return False, False
+
 def create_replanner_agent(attempt: int):
     """Dynamically creates an LLM Agent to handle the Re-planning (CUJ 3)."""
     return LlmAgent(
@@ -45,6 +96,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
     attempt = 1
     current_objective = node_input
     is_success = False
+    should_retry = False
     
     print(f"\n🚨 [Control Room] Received Alert: {current_objective}")
     await emit_status("system", f"Received Alert: {current_objective}")
@@ -77,6 +129,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                     if response.status_code != 200:
                         final_report = f"A2A Server error: {response.status_code}"
                         is_success = False
+                        should_retry = True
                     else:
                         async for line in response.aiter_lines():
                             if not line: continue
@@ -90,6 +143,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                                         f"{error.get('message', 'Unknown error')}"
                                     )
                                     is_success = False
+                                    should_retry = True
                                     break
                                 
                                 # Handle intermediate notifications (artifacts)
@@ -119,19 +173,13 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                                         ctx.state["final_outcome"] = f"SECURITY BLOCK: {final_report}"
                                         return {"status": "Blocked", "report": final_report}
 
-                                    # Evaluate outcome - More robust check
-                                    # If it explicitly says SUCCESS, it's a success regardless of previous keywords
-                                    if "status: success" in final_report.lower():
-                                        is_success = True
-                                    elif any(kw in final_report.lower() for kw in ["not found", "discontinued", "no inventory"]):
-                                        is_success = False
-                                    else:
-                                        is_success = True
+                                    is_success, should_retry = _classify_report(final_report)
                             except Exception as e:
                                 print(f"  [Control Room] Error parsing stream line: {e}")
         except Exception as e:
             final_report = f"Connection error: {str(e)}"
             is_success = False
+            should_retry = True
 
         # --- 2. Evaluate and Re-plan (CUJ 3) ---
         if is_success:
@@ -142,28 +190,35 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
         print(f"\n⚠️ [Control Room] Attempt {attempt} failed:\n    Reason: {final_report}")
         await emit_status("replanning", f"Attempt {attempt} failed: {final_report}")
         
-        if attempt < max_attempts:
-            print(f"\n💡 [Control Room] Triggering Re-Planner Agent...")
-            await emit_status("replanning", "Triggering Re-Planner to broaden objective...")
-            replanner = create_replanner_agent(attempt)
-            feedback_prompt = f"Original Objective: {current_objective}\nFailure Reason: {final_report}\nPlease broaden the search."
-            
-            # Using ctx.run_node to dynamically invoke an LLM agent mid-workflow!
-            new_objective_raw = await ctx.run_node(replanner, feedback_prompt)
-            
-            # Parse the LLM output safely
-            if hasattr(new_objective_raw, "parts"):
-                current_objective = "".join([p.text for p in new_objective_raw.parts if hasattr(p, "text") and p.text])
-            elif isinstance(new_objective_raw, str):
-                current_objective = new_objective_raw
-            else:
-                current_objective = str(new_objective_raw)
+        if should_retry:
+            if attempt < max_attempts:
+                print(f"\n💡 [Control Room] Triggering Re-Planner Agent...")
+                await emit_status("replanning", "Triggering Re-Planner to broaden objective...")
+                replanner = create_replanner_agent(attempt)
+                feedback_prompt = f"Original Objective: {current_objective}\nFailure Reason: {final_report}\nPlease broaden the search."
                 
-            current_objective = current_objective.strip()
-            print(f"💡 [Control Room] New Objective Generated:\n    '{current_objective}'")
-            await emit_status("replanning", f"New Objective: {current_objective}")
-            
-        attempt += 1
+                # Using ctx.run_node to dynamically invoke an LLM agent mid-workflow!
+                new_objective_raw = await ctx.run_node(replanner, feedback_prompt)
+                
+                # Parse the LLM output safely
+                if hasattr(new_objective_raw, "parts"):
+                    current_objective = "".join([p.text for p in new_objective_raw.parts if hasattr(p, "text") and p.text])
+                elif isinstance(new_objective_raw, str):
+                    current_objective = new_objective_raw
+                else:
+                    current_objective = str(new_objective_raw)
+                    
+                current_objective = current_objective.strip()
+                print(f"💡 [Control Room] New Objective Generated:\n    '{current_objective}'")
+                await emit_status("replanning", f"New Objective: {current_objective}")
+                
+                attempt += 1
+                continue
+            break
+
+        print(f"\n❌ [Control Room] Fatal Error: Terminal failure.")
+        ctx.state["final_outcome"] = final_report
+        return {"status": "Failed", "report": final_report}
 
     print(f"\n❌ [Control Room] Fatal Error: Max attempts reached.")
     ctx.state["final_outcome"] = f"Failed after {max_attempts} attempts. Last error: {final_report}"
