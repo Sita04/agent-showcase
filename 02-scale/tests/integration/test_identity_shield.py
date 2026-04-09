@@ -57,17 +57,17 @@ def _bind_extraction(_mock_llm, *, is_destructive: bool):
 class TestRouting:
     """Verify the conditional edge routes destructive vs. normal requests."""
 
+    @patch("agents.planner.graph.resourcemanager_v3")
     @patch("agents.planner.graph.aiplatform_v1")
     @patch("agents.executor.src.crew.LogisticsExecutionCrew")
     async def test_destructive_intent_routes_to_security_path(
-        self, MockCrew, mock_aiplatform, _mock_llm
+        self, MockCrew, mock_aiplatform, mock_resourcemanager, _mock_llm
     ):
         _bind_extraction(_mock_llm, is_destructive=True)
 
-        # Make the delete_index call raise PermissionDenied
-        mock_client = MagicMock()
-        mock_client.delete_index.side_effect = PermissionDenied("Caller lacks permission")
-        mock_aiplatform.IndexServiceClient.return_value = mock_client
+        mock_projects = MagicMock()
+        mock_projects.test_iam_permissions.return_value.permissions = []
+        mock_resourcemanager.ProjectsClient.return_value = mock_projects
 
         from agents.planner.graph import build_planner_graph
 
@@ -106,27 +106,26 @@ class TestRouting:
 class TestForbiddenAction:
     """Verify the attempt_forbidden_action node captures IAM rejections."""
 
+    @patch("agents.planner.graph.resourcemanager_v3")
     @patch("agents.planner.graph.aiplatform_v1")
     async def test_permission_denied_captured_in_state(
-        self, mock_aiplatform, _mock_llm, malicious_plan_state
+        self, mock_aiplatform, mock_resourcemanager, _mock_llm, malicious_plan_state
     ):
         _bind_extraction(_mock_llm, is_destructive=True)
 
-        mock_client = MagicMock()
-        mock_client.delete_index.side_effect = PermissionDenied(
-            "Permission 'aiplatform.indexes.delete' denied on resource"
-        )
-        mock_aiplatform.IndexServiceClient.return_value = mock_client
+        mock_projects = MagicMock()
+        mock_projects.test_iam_permissions.return_value.permissions = []
+        mock_resourcemanager.ProjectsClient.return_value = mock_projects
 
         from agents.planner.graph import PlannerNodes
 
         nodes = PlannerNodes()
-        result = nodes.attempt_forbidden_action(malicious_plan_state)
+        result = await nodes.attempt_forbidden_action(malicious_plan_state)
 
         assert result.get("current_step") == "security_check"
         assert result.get("security_violation") is not None
         assert "Blocked by Identity Shield" in str(result.get("security_violation"))
-        assert "Permission" in str(result.get("security_violation")) or "permission" in str(result.get("security_violation"))
+        assert "Missing IAM permission" in str(result.get("security_violation"))
 
     @patch("agents.planner.graph.aiplatform_v1")
     async def test_security_report_generated(
@@ -140,7 +139,7 @@ class TestForbiddenAction:
 
         state_with_violation: PlanState = malicious_plan_state.copy() # type: ignore
         state_with_violation["security_violation"] = "Blocked by Identity Shield: Permission denied"
-        result = nodes.generate_security_report(state_with_violation)
+        result = await nodes.generate_security_report(state_with_violation)
 
         assert result.get("current_step") == "completed"
         assert result.get("final_report") is not None
@@ -150,16 +149,17 @@ class TestForbiddenAction:
 class TestFullSecurityPath:
     """End-to-end graph test for the security path."""
 
+    @patch("agents.planner.graph.resourcemanager_v3")
     @patch("agents.planner.graph.aiplatform_v1")
     @patch("agents.executor.src.crew.LogisticsExecutionCrew")
     async def test_full_graph_security_path(
-        self, MockCrew, mock_aiplatform, _mock_llm
+        self, MockCrew, mock_aiplatform, mock_resourcemanager, _mock_llm
     ):
         _bind_extraction(_mock_llm, is_destructive=True)
 
-        mock_client = MagicMock()
-        mock_client.delete_index.side_effect = PermissionDenied("Denied")
-        mock_aiplatform.IndexServiceClient.return_value = mock_client
+        mock_projects = MagicMock()
+        mock_projects.test_iam_permissions.return_value.permissions = []
+        mock_resourcemanager.ProjectsClient.return_value = mock_projects
 
         from agents.planner.graph import build_planner_graph
 

@@ -197,6 +197,7 @@ def deploy_planning_agent(args: argparse.Namespace) -> str:
             "langchain-google-genai>=4.2.1",
             "langchain-core>=1.2.21",
             "google-cloud-aiplatform>=1.144",
+            "google-cloud-resource-manager>=1.14.2",
         ],
         "extra_packages": [
             "agents",

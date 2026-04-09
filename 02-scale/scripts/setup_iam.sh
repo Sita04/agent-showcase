@@ -16,9 +16,10 @@
 # CUJ 2: Identity Shield — IAM Setup
 #
 # Creates service accounts and binds IAM roles for the Identity Shield demo.
-# IMPORTANT: roles/aiplatform.user is not sufficient by itself to enforce the
-# CUJ 2 delete-index boundary. The deny policy (or a custom narrower role) is
-# what actually removes index mutation access from the planning agent.
+# The planning agent uses a custom least-privilege role that preserves only the
+# model + Agent Engine permissions needed for the demo, without vector index
+# mutation permissions. A deny policy remains an optional extra guardrail when
+# the caller has iam.denypolicies.create.
 # The execution agent SA gets full access including vector store write.
 #
 # Prerequisites:
@@ -34,6 +35,8 @@ PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-gcp-samples-ic0}"
 REGION="us-central1"
 PLANNING_SA="planning-agent-sa"
 EXECUTION_SA="execution-agent-sa"
+PLANNING_ROLE_ID="planningAgentRuntime"
+PLANNING_ROLE="projects/${PROJECT_ID}/roles/${PLANNING_ROLE_ID}"
 PLANNING_SA_EMAIL="${PLANNING_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
 EXECUTION_SA_EMAIL="${EXECUTION_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
 
@@ -66,19 +69,50 @@ else
     echo "  Created ${EXECUTION_SA}."
 fi
 
+# --- Step 1.5: Create or Update Least-Privilege Planner Role ---
+echo ""
+echo "--- Step 1.5: Ensuring custom planning runtime role ---"
+
+PLANNING_ROLE_PERMISSIONS="aiplatform.endpoints.predict,aiplatform.locations.get,aiplatform.locations.list,aiplatform.reasoningEngines.get,aiplatform.reasoningEngines.query,resourcemanager.projects.get"
+
+if gcloud iam roles describe "${PLANNING_ROLE_ID}" \
+    --project="${PROJECT_ID}" \
+    --format="value(name)" &>/dev/null; then
+    echo "  ${PLANNING_ROLE_ID} already exists, updating permissions."
+    gcloud iam roles update "${PLANNING_ROLE_ID}" \
+        --project="${PROJECT_ID}" \
+        --title="Planning Agent Runtime" \
+        --description="Least-privilege runtime role for CUJ 2 planning agent" \
+        --permissions="${PLANNING_ROLE_PERMISSIONS}" \
+        --stage=GA > /dev/null
+else
+    echo "  Creating ${PLANNING_ROLE_ID} custom role."
+    gcloud iam roles create "${PLANNING_ROLE_ID}" \
+        --project="${PROJECT_ID}" \
+        --title="Planning Agent Runtime" \
+        --description="Least-privilege runtime role for CUJ 2 planning agent" \
+        --permissions="${PLANNING_ROLE_PERMISSIONS}" \
+        --stage=GA > /dev/null
+fi
+
 # --- Step 2: Grant IAM Roles ---
 echo ""
 echo "--- Step 2: Granting IAM roles ---"
 
-# Planning Agent: Vertex AI User for model + Agent Engine access.
-# This role still includes index mutation permissions, so the deny policy
-# below is required to make the planner truly least-privilege for CUJ 2.
-echo "  Granting roles/aiplatform.user to ${PLANNING_SA}..."
+# Planning Agent: use the custom least-privilege runtime role.
+echo "  Granting ${PLANNING_ROLE} to ${PLANNING_SA}..."
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${PLANNING_SA_EMAIL}" \
+    --role="${PLANNING_ROLE}" \
+    --condition=None \
+    --quiet > /dev/null
+
+echo "  Removing legacy roles/aiplatform.user from ${PLANNING_SA} if present..."
+gcloud projects remove-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${PLANNING_SA_EMAIL}" \
     --role="roles/aiplatform.user" \
     --condition=None \
-    --quiet > /dev/null
+    --quiet > /dev/null 2>&1 || true
 
 # Execution Agent: Vertex AI User + Editor (full access)
 echo "  Granting roles/aiplatform.user to ${EXECUTION_SA}..."
@@ -121,7 +155,7 @@ else
     {
       "denyRule": {
         "deniedPrincipals": [
-          "principalSet://iam.googleapis.com/projects/${PROJECT_ID}/serviceAccounts/${PLANNING_SA_EMAIL}"
+          "principal://iam.googleapis.com/projects/-/serviceAccounts/${PLANNING_SA_EMAIL}"
         ],
         "deniedPermissions": [
           "aiplatform.googleapis.com/indexes.delete",
@@ -134,15 +168,15 @@ else
   ]
 }
 POLICY
-    ) && echo "  Deny policy created." || echo "  WARNING: Deny policy creation failed (needs iam.denypolicies.create). CUJ 2 is NOT fully enforced without this deny policy or a narrower custom role, because roles/aiplatform.user still allows index mutation APIs."
+    ) && echo "  Deny policy created." || echo "  WARNING: Deny policy creation failed (needs iam.denypolicies.create). The custom planningAgentRuntime role still enforces CUJ 2 least privilege, but the deny policy remains a useful extra guardrail."
 fi
 
 echo ""
 echo "=== IAM Setup Complete ==="
 echo ""
 echo "Planning Agent (${PLANNING_SA_EMAIL}):"
-echo "  - roles/aiplatform.user (model + Agent Engine access)"
-echo "  - REQUIRES deny policy or custom role to block indexes.delete, indexes.update, indexEndpoints.delete, indexEndpoints.update"
+echo "  - ${PLANNING_ROLE} (model + Agent Engine access only)"
+echo "  - Does NOT include indexes.delete, indexes.update, indexEndpoints.delete, indexEndpoints.update"
 echo ""
 echo "Execution Agent (${EXECUTION_SA_EMAIL}):"
 echo "  - roles/aiplatform.user (can call Gemini models)"

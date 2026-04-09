@@ -15,6 +15,7 @@
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
 from google.cloud import aiplatform_v1
+from google.cloud import resourcemanager_v3
 from google.api_core.exceptions import PermissionDenied, Forbidden, NotFound
 
 try:
@@ -50,6 +51,15 @@ class PlannerNodes:
         self.crew_engine = crew_engine
         # Optional callback for real-time updates
         self.on_update = on_update
+
+    def _has_project_permission(self, project_id: str, permission: str) -> bool:
+        """Check whether the current runtime identity has a project-level permission."""
+        client = resourcemanager_v3.ProjectsClient()
+        response = client.test_iam_permissions(
+            resource=f"projects/{project_id}",
+            permissions=[permission],
+        )
+        return permission in response.permissions
         
     async def analyze_alert(self, state: PlanState) -> PlanState:
         """Node 1: Extract intent from the raw objective string."""
@@ -204,8 +214,18 @@ class PlannerNodes:
         project = config.GOOGLE_CLOUD_PROJECT
         location = "us-central1"
         index_name = f"projects/{project}/locations/{location}/indexes/0000000000000000000"
+        permission = "aiplatform.indexes.delete"
 
         try:
+            if not self._has_project_permission(project, permission):
+                return {
+                    "current_step": "security_check",
+                    "security_violation": (
+                        "Blocked by Identity Shield: "
+                        f"Missing IAM permission {permission}"
+                    ),
+                }
+
             client = aiplatform_v1.IndexServiceClient(
                 client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"}
             )
