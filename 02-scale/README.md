@@ -217,18 +217,47 @@ bash scripts/setup_iam.sh
 # Step 2: Deploy the planner to Agent Engine if needed
 uv run scripts/deploy_to_agent_engine.py --planning-only
 
-# Step 3: Expose or proxy the planner's A2A endpoint, then deploy the Control Room
-PLANNER_AGENT_URL="https://YOUR-PLANNER-ENDPOINT" \
+# Step 3: Deploy the planner A2A bridge in front of the planning reasoning engine
+PLANNING_AGENT_ENGINE_ID="projects/.../reasoningEngines/..." \
+  bash scripts/deploy_planner_a2a_cloud_run.sh
+
+# Step 4: Deploy the Control Room against the live planner bridge
+PLANNER_AGENT_URL="https://YOUR-PLANNER-A2A-ENDPOINT" \
   bash scripts/deploy_control_room_cloud_run.sh
 ```
 
 Cloud Run deployment assets:
 
+* `Dockerfile.planner-a2a`
+* `cloudbuild-planner-a2a.yaml`
+* `scripts/deploy_planner_a2a_cloud_run.sh`
 * `Dockerfile.control-room`
 * `cloudbuild-control-room.yaml`
 * `scripts/deploy_control_room_cloud_run.sh`
 
 The default Cloud Run runtime identity is `control-room-sa@gcp-samples-ic0.iam.gserviceaccount.com`, created by `scripts/setup_iam.sh` and bound to the same custom `planningAgentRuntime` role used for Gemini access.
+
+#### Live Cloud Run Validation (2026-04-09)
+
+The Cloud Run path is now live in `gcp-samples-ic0`:
+
+* Control Room: `https://scale-control-room-nhhfh7g7iq-uc.a.run.app`
+* Planner A2A bridge: `https://scale-planner-a2a-nhhfh7g7iq-uc.a.run.app`
+
+Validated live behavior:
+
+* `GET /api/health` on the Control Room returns `200`
+* `GET /.well-known/agent.json` on the planner bridge returns `200`
+* A direct JSON-RPC `message/send` request to the planner bridge returns `200` and reaches the deployed planning reasoning engine
+* The destructive CUJ works end to end:
+  Cloud Run Control Room -> Cloud Run planner A2A bridge -> Agent Engine planner -> security block report
+* A normal restock prompt also reaches the full chain, but the execution reasoning engine still fails before procurement completes
+
+Current live limitation:
+
+* The execution reasoning engine (`reasoningEngines/4212141634835447808`) still aborts in `crewai_tools.adapters.mcp_adapter.py`
+* The live logs show CrewAI prompting for the `mcp` package interactively (`click.exceptions.Abort`), so the Cloud Run path is working but the execution runtime is still not clean for the happy path
+* The Control Room currently wraps that failed procurement result with an outer `status: "Success"`; the workflow reached the planner / executor correctly, but the UI-level success heuristic still needs tightening for this failure shape
 
 ### Agent Engine Deployment (CUJ 2: Identity Shield)
 
@@ -367,7 +396,7 @@ uv run pytest tests/e2e/ -v
 | **Executor Agents** (`ExecutorAgents`) | `agents/executor/src/agents.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **Executor Crew** (`LogisticsExecutionCrew`) | `agents/executor/src/crew.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **MCP Tool Adapters** (`get_mcp_server`, `get_mock_oms_mcp`) | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
-| **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested; Cloud Run deploy path added |
+| **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested; Cloud Run deploy path live |
 | **Scale Agents Dashboard UI** (FastAPI + JS) | `app_server.py`, `ui/` | — | Manual |
 | **CUJ 1: Happy Path Restock** (E2E) | Full stack | `tests/e2e/test_cuj1_happy_path.py` | Tested |
 | **Cross-Framework Error Handling / Re-planning** (CUJ 3) | `agents/control_room/agent.py` | `tests/e2e/test_cuj3_replanning.py` | Tested |
@@ -375,7 +404,7 @@ uv run pytest tests/e2e/ -v
 | **Identity Shield Control Room** (CUJ 2 — security block handling) | `agents/control_room/agent.py` | `tests/e2e/test_cuj2_identity_shield.py` | Tested |
 | **Agent Engine Deployment** (Planning Agent) | `scripts/deploy_to_agent_engine.py` | — | Deployed (`reasoningEngines/1293809076299366400`) |
 | **Planning Agent AE Wrapper** (native LangGraph) | `agents/planner/agent.py` | — | Deployed (package import + serviceAccount-at-create fixes validated) |
-| **Execution Crew AE Wrapper** (native CrewAI) | `agents/executor/agent.py`, `scripts/build_patched_crewai_wheel.py` | — | Deployed (`reasoningEngines/4212141634835447808`; startup confirmed, `execution-agent-sa` verified) |
+| **Execution Crew AE Wrapper** (native CrewAI) | `agents/executor/agent.py`, `scripts/build_patched_crewai_wheel.py` | — | Deployed (`reasoningEngines/4212141634835447808`; startup confirmed, `execution-agent-sa` verified; live MCP runtime issue remains) |
 | **Agent Engine IAM** (service accounts + role binding) | `scripts/setup_iam.sh` | — | Done (`planning-agent-sa`, `execution-agent-sa`) |
 | **ADK Agent / Dashboard Frontend** | — | — | TODO |
 
@@ -398,7 +427,7 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 2. **Deployed the Planning Agent** (LangGraph) to Agent Engine via native SDK wrapper deployment (`scripts/deploy_to_agent_engine.py`)
    * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/1293809076299366400`
    * Created directly with `serviceAccount=planning-agent-sa@...` so startup runs under the restricted identity
-3. **Control Room Agent** — **Cloud Run path added.** ADK `Workflow` (`google.adk.workflow`) is still blocked for Agent Engine source deployment, and Agent Engine BYOC is still blocked in this project by the container policy error. The preserved ADK 2.0 Workflow now runs via `app_server.py` on Cloud Run and calls the Planning Agent over A2A using `PLANNER_AGENT_URL`.
+3. **Control Room Agent** — **Cloud Run path is live.** ADK `Workflow` (`google.adk.workflow`) is still blocked for Agent Engine source deployment, and Agent Engine BYOC is still blocked in this project by the container policy error. The preserved ADK 2.0 Workflow now runs via `app_server.py` on Cloud Run and calls a Cloud Run-hosted planner A2A bridge, which forwards to the deployed planning reasoning engine.
 
 ### Phase 2: Enforce IAM Boundaries (DONE)
 
@@ -435,6 +464,11 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
    * Planner engine `reasoningEngines/1293809076299366400` runs as `planning-agent-sa`
    * Execution crew engine `reasoningEngines/4212141634835447808` runs as `execution-agent-sa`
    * Destructive prompt now returns a live security report stating that `aiplatform.indexes.delete` is missing and the action was blocked
+6. **Live Cloud Run E2E probe (2026-04-09)**:
+   * Control Room service: `https://scale-control-room-nhhfh7g7iq-uc.a.run.app`
+   * Planner A2A bridge: `https://scale-planner-a2a-nhhfh7g7iq-uc.a.run.app`
+   * Destructive prompt works end to end through Cloud Run -> planner bridge -> Agent Engine planner
+   * Normal procurement prompt reaches the execution reasoning engine but still fails there with a CrewAI MCP adapter runtime issue (`click.exceptions.Abort`)
 
 ### CUJ 2 Prerequisites
 
@@ -449,7 +483,9 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 * [x] Execution Crew effective identity verified (`execution-agent-sa`)
 * [x] Planning Agent deployed to Agent Engine (`reasoningEngines/1293809076299366400`)
 * [x] Planning Agent effective identity verified (`planning-agent-sa`)
-* [x] **Cloud Run path added for the Control Room** — `app_server.py` now hosts the ADK 2.0 `Workflow` on Cloud Run via `Dockerfile.control-room` and `scripts/deploy_control_room_cloud_run.sh`, preserving the Workflow demo while avoiding the current Agent Engine serialization blocker.
+* [x] **Cloud Run path live for the Control Room** — `app_server.py` now hosts the ADK 2.0 `Workflow` on Cloud Run, and the live planner bridge forwards to the deployed planning reasoning engine
+* [x] Live destructive CUJ through Cloud Run Control Room -> Cloud Run planner bridge -> Agent Engine planner
+* [ ] Happy-path Cloud Run E2E — blocked by the execution reasoning engine's MCP adapter runtime issue (`You are missing the 'mcp' package` / `click.exceptions.Abort`)
 * [ ] **BLOCKED:** Deploy Control Room to Agent Engine — ADK `Workflow` is still an alpha feature (`google-adk 2.0.0a2`) that doesn't serialize for Agent Engine's source-based deployment. BYOC is also still blocked in this project by the Agent Engine container deployment policy error: `One or more users named in the policy do not belong to a permitted customer.`
 * [x] ~~**RESOLVED:** Deploy Execution Crew (CrewAI) to Agent Engine~~ — Source deployment now bundles a patched local CrewAI wheel built by `scripts/build_patched_crewai_wheel.py`, stripping the problematic Jinja2 CLI template `.py` files before Agent Engine runs `compileall`. The current deployed engine is `projects/761793285222/locations/us-central1/reasoningEngines/4212141634835447808`, and startup has been verified in Agent Engine logs.
 * [x] Redeploy Planning Agent natively (LangGraph via `agent_engines.create()`) — planner now deploys as `projects/761793285222/locations/us-central1/reasoningEngines/1293809076299366400`

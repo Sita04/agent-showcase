@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --prerelease allow
-RUN uv pip install --python /app/.venv/bin/python "google-adk==2.0.0a2" "fastapi==0.135.2"
+RUN uv pip install --python /app/.venv/bin/python "a2a-sdk==0.3.25" "a2a-server==0.1.5"
 
 COPY . .
 
@@ -20,4 +20,4 @@ ENV PYTHONPATH=/app
 
 EXPOSE 8080
 
-CMD ["/app/.venv/bin/python", "-m", "uvicorn", "app_server:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/app/.venv/bin/python", "agents/planner/a2a_server.py"]

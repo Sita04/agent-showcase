@@ -1,8 +1,10 @@
 import asyncio
+import json
 import os
 import click
 import uvicorn
 from dotenv import load_dotenv
+import vertexai
 
 # --- A2A Server Imports ---
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -17,10 +19,25 @@ from a2a.utils import new_task
 from a2a.utils.errors import ServerError
 
 # --- LangGraph Imports ---
-from agents.planner.graph import build_planner_graph
-from agents.planner.state import PlanState
-
 load_dotenv()
+
+
+def _build_planner_agent_engine():
+    """Return the deployed planning Agent Engine handle if configured."""
+    planning_engine_id = os.environ.get("PLANNING_AGENT_ENGINE_ID", "").strip()
+    if not planning_engine_id:
+        return None
+
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1").strip()
+    if not project:
+        raise RuntimeError(
+            "GOOGLE_CLOUD_PROJECT is required when PLANNING_AGENT_ENGINE_ID is set."
+        )
+
+    client = vertexai.Client(project=project, location=location)
+    return client.agent_engines.get(name=planning_engine_id)
+
 
 class PlannerAgentExecutor(AgentExecutor):
     """
@@ -44,12 +61,32 @@ class PlannerAgentExecutor(AgentExecutor):
 
         try:
             print(f"\n🚀 [A2A Executor] Triggering LangGraph with objective: '{objective}'")
+
+            planner_engine = _build_planner_agent_engine()
+            if planner_engine is not None:
+                await updater.add_artifact(
+                    [Part(root=TextPart(text="Planner bridge: Querying Agent Engine planner..."))],
+                    name="planner_step",
+                )
+                final_report = await asyncio.to_thread(planner_engine.query, input=objective)
+                await updater.add_artifact(
+                    [Part(root=TextPart(text="Planner bridge: Agent Engine planner completed."))],
+                    name="planner_step",
+                )
+                await updater.add_artifact(
+                    [Part(root=TextPart(text=str(final_report)))],
+                    name="orchestration_report",
+                )
+                await updater.complete()
+                return
             
             # Define an update callback to stream artifacts during graph execution
             async def on_graph_update(msg: str):
                 await updater.add_artifact([Part(root=TextPart(text=msg))], name="planner_step")
 
             # 1. Build the LangGraph workflow with the callback
+            from agents.planner.graph import build_planner_graph
+            from agents.planner.state import PlanState
             graph = build_planner_graph(on_update=on_graph_update)
             
             # 2. Set the initial state

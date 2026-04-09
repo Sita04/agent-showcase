@@ -3,7 +3,7 @@
 set -euo pipefail
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-gcp-samples-ic0}"
-REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
+REGION="${CLOUD_RUN_REGION:-us-central1}"
 SERVICE_NAME="${CONTROL_ROOM_SERVICE_NAME:-scale-control-room}"
 REPOSITORY="${ARTIFACT_REPOSITORY:-agent-showcase}"
 CONTROL_ROOM_SA="${CONTROL_ROOM_SERVICE_ACCOUNT:-control-room-sa@${PROJECT_ID}.iam.gserviceaccount.com}"
@@ -37,7 +37,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --region "${REGION}" \
   --image "${IMAGE_URI}" \
   --service-account "${CONTROL_ROOM_SA}" \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},PLANNER_AGENT_URL=${PLANNER_AGENT_URL}" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GOOGLE_GENAI_USE_VERTEXAI=TRUE,PLANNER_AGENT_URL=${PLANNER_AGENT_URL}" \
   --concurrency 1 \
   --timeout 300 \
   --memory 2Gi \

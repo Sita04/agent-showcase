@@ -18,9 +18,14 @@ from a2a.utils.errors import ServerError
 @pytest.fixture
 def mock_graph():
     mock = MagicMock()
-    mock.ainvoke = AsyncMock(
-        return_value={"final_report": "SUCCESS: PO-TEST-1 created. Total cost: $100."}
-    )
+    async def _astream(_state):
+        yield {
+            "generate_report": {
+                "final_report": "SUCCESS: PO-TEST-1 created. Total cost: $100."
+            }
+        }
+
+    mock.astream = _astream
     return mock
 
 
@@ -95,6 +100,38 @@ async def test_message_send(a2a_client):
         assert len(artifacts) > 0
         report_text = artifacts[-1]["parts"][0]["text"]
         assert "PO-TEST-1" in report_text
+
+
+async def test_message_send_via_agent_engine_bridge(a2a_client):
+    mock_engine = MagicMock()
+    mock_engine.query.return_value = "SUCCESS: PO-AE-1 created via Agent Engine."
+
+    with (
+        patch("agents.planner.a2a_server._build_planner_agent_engine", return_value=mock_engine),
+        patch.dict("os.environ", {"PLANNING_AGENT_ENGINE_ID": "projects/test/locations/us-central1/reasoningEngines/123"}, clear=False),
+    ):
+        async with a2a_client as client:
+            payload = {
+                "jsonrpc": "2.0",
+                "id": "req-test-ae-1",
+                "method": "message/send",
+                "params": {
+                    "message": {
+                        "message_id": str(uuid.uuid4()),
+                        "parts": [{"kind": "text", "text": "Restock mugs via AE"}],
+                        "role": "user",
+                    }
+                },
+            }
+            response = await client.post("/", json=payload)
+
+    assert response.status_code == 200
+    result = response.json()
+    task = result["result"]
+    artifacts = task.get("artifacts", [])
+    report_text = artifacts[-1]["parts"][0]["text"]
+    assert "PO-AE-1" in report_text
+    mock_engine.query.assert_called_once_with(input="Restock mugs via AE")
 
 
 async def test_cancel_raises():
