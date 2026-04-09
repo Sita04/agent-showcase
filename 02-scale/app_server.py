@@ -44,6 +44,12 @@ async def push_status(name: str = Form(...), text: str = Form(...)):
 @app.post("/api/chat")
 async def chat(prompt: Optional[str] = Form(None)):
     user_id = "admin"
+
+    while not dashboard_queue.empty():
+        try:
+            dashboard_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
     
     # Create a fresh session for this request
     session = await _runner.session_service.create_session(
@@ -61,15 +67,10 @@ async def chat(prompt: Optional[str] = Form(None)):
 
     new_message = GenAIContent(role="user", parts=parts)
     
-    # Clear queue before starting
-    while not dashboard_queue.empty():
-        try:
-            dashboard_queue.get_nowait()
-        except asyncio.QueueEmpty:
-            break
-
     async def event_generator():
-        # Task to run the ADK agent and pipe its events into the shared queue
+        # Task to run the ADK agent and pipe its events into the shared queue.
+        # Cloud Run is configured with concurrency=1 for the demo, so a single
+        # queue remains sufficient for streaming internal and external updates.
         async def run_agent():
             try:
                 async for event in _runner.run_async(

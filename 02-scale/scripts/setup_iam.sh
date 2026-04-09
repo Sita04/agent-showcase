@@ -35,15 +35,18 @@ PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-gcp-samples-ic0}"
 REGION="us-central1"
 PLANNING_SA="planning-agent-sa"
 EXECUTION_SA="execution-agent-sa"
+CONTROL_ROOM_SA="control-room-sa"
 PLANNING_ROLE_ID="planningAgentRuntime"
 PLANNING_ROLE="projects/${PROJECT_ID}/roles/${PLANNING_ROLE_ID}"
 PLANNING_SA_EMAIL="${PLANNING_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
 EXECUTION_SA_EMAIL="${EXECUTION_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
+CONTROL_ROOM_SA_EMAIL="${CONTROL_ROOM_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "=== CUJ 2: Identity Shield — IAM Setup ==="
 echo "Project: ${PROJECT_ID}"
 echo "Planning Agent SA: ${PLANNING_SA_EMAIL}"
 echo "Execution Agent SA: ${EXECUTION_SA_EMAIL}"
+echo "Control Room SA: ${CONTROL_ROOM_SA_EMAIL}"
 echo ""
 
 # --- Step 1: Create Service Accounts (idempotent) ---
@@ -67,6 +70,16 @@ else
         --description="CUJ 2: Execution Agent SA with full MCP tool access including vector store write" \
         --project="${PROJECT_ID}"
     echo "  Created ${EXECUTION_SA}."
+fi
+
+if gcloud iam service-accounts describe "${CONTROL_ROOM_SA_EMAIL}" --project="${PROJECT_ID}" &>/dev/null; then
+    echo "  ${CONTROL_ROOM_SA} already exists, skipping."
+else
+    gcloud iam service-accounts create "${CONTROL_ROOM_SA}" \
+        --display-name="Control Room (ADK 2.0 Workflow on Cloud Run)" \
+        --description="Control Room runtime identity for the Cloud Run-hosted ADK 2.0 Workflow demo" \
+        --project="${PROJECT_ID}"
+    echo "  Created ${CONTROL_ROOM_SA}."
 fi
 
 # --- Step 1.5: Create or Update Least-Privilege Planner Role ---
@@ -113,6 +126,13 @@ gcloud projects remove-iam-policy-binding "${PROJECT_ID}" \
     --role="roles/aiplatform.user" \
     --condition=None \
     --quiet > /dev/null 2>&1 || true
+
+echo "  Granting ${PLANNING_ROLE} to ${CONTROL_ROOM_SA}..."
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${CONTROL_ROOM_SA_EMAIL}" \
+    --role="${PLANNING_ROLE}" \
+    --condition=None \
+    --quiet > /dev/null
 
 # Execution Agent: Vertex AI User + Editor (full access)
 echo "  Granting roles/aiplatform.user to ${EXECUTION_SA}..."
@@ -181,5 +201,8 @@ echo ""
 echo "Execution Agent (${EXECUTION_SA_EMAIL}):"
 echo "  - roles/aiplatform.user (can call Gemini models)"
 echo "  - roles/aiplatform.editor (full vector store access)"
+echo ""
+echo "Control Room (${CONTROL_ROOM_SA_EMAIL}):"
+echo "  - ${PLANNING_ROLE} (Gemini + agent query permissions for Cloud Run orchestration)"
 echo ""
 echo "Next step: Run 'python scripts/deploy_to_agent_engine.py' to deploy agents."

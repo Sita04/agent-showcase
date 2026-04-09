@@ -2,17 +2,19 @@ import asyncio
 import httpx
 import uuid
 import json
+import os
 
 from google.adk import Context
 from google.adk.workflow import Workflow, node
 from google.adk.agents.llm_agent import LlmAgent
 
-A2A_SERVER_URL = "http://127.0.0.1:8080"
+A2A_SERVER_URL = os.environ.get("PLANNER_AGENT_URL", "http://127.0.0.1:8080")
 
 # --- Side-channel for Dashboard Updates ---
-# This allows us to send real-time progress to the UI without 
+# This allows us to send real-time progress to the UI without
 # fighting ADK 2.0's strict node return types.
 dashboard_queue = asyncio.Queue()
+
 
 async def emit_status(name: str, text: str):
     await dashboard_queue.put({"type": "status", "name": name, "text": text})
@@ -80,6 +82,15 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                             if not line: continue
                             try:
                                 data = json.loads(line)
+
+                                if "error" in data:
+                                    error = data["error"]
+                                    final_report = (
+                                        "A2A Server error: "
+                                        f"{error.get('message', 'Unknown error')}"
+                                    )
+                                    is_success = False
+                                    break
                                 
                                 # Handle intermediate notifications (artifacts)
                                 if data.get("method") == "task/update":

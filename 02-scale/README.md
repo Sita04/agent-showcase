@@ -196,6 +196,40 @@ This script acts as the main entry point (utilizing ADK 2.0 `InMemoryRunner`, `S
 uv run agents/control_room/main.py
 ```
 
+### Cloud Run Deployment for the ADK 2.0 Workflow Control Room
+
+The Control Room keeps the real ADK 2.0 `Workflow` demo, but it now deploys to **Cloud Run** instead of Agent Engine. This avoids the current Agent Engine source-deployment serialization gap for `google.adk.workflow.Workflow` while preserving the same orchestration logic and UI.
+
+The Cloud Run entrypoint is `app_server.py`, which serves:
+
+* the dashboard UI
+* `/api/chat` for the ADK 2.0 workflow run
+* `/api/push_status` for planner / executor progress callbacks
+
+The deployment uses `--concurrency 1` intentionally. The dashboard status stream relies on a single shared in-memory queue, so the Cloud Run service is currently designed for one live demo session at a time.
+
+To deploy:
+
+```bash
+# Step 1: Ensure IAM service accounts exist
+bash scripts/setup_iam.sh
+
+# Step 2: Deploy the planner to Agent Engine if needed
+uv run scripts/deploy_to_agent_engine.py --planning-only
+
+# Step 3: Expose or proxy the planner's A2A endpoint, then deploy the Control Room
+PLANNER_AGENT_URL="https://YOUR-PLANNER-ENDPOINT" \
+  bash scripts/deploy_control_room_cloud_run.sh
+```
+
+Cloud Run deployment assets:
+
+* `Dockerfile.control-room`
+* `cloudbuild-control-room.yaml`
+* `scripts/deploy_control_room_cloud_run.sh`
+
+The default Cloud Run runtime identity is `control-room-sa@gcp-samples-ic0.iam.gserviceaccount.com`, created by `scripts/setup_iam.sh` and bound to the same custom `planningAgentRuntime` role used for Gemini access.
+
 ### Agent Engine Deployment (CUJ 2: Identity Shield)
 
 Scripts for deploying agents to Agent Engine with scoped IAM service accounts.
@@ -333,7 +367,7 @@ uv run pytest tests/e2e/ -v
 | **Executor Agents** (`ExecutorAgents`) | `agents/executor/src/agents.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **Executor Crew** (`LogisticsExecutionCrew`) | `agents/executor/src/crew.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **MCP Tool Adapters** (`get_mcp_server`, `get_mock_oms_mcp`) | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
-| **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested |
+| **ADK 2.0 Control Room Agent** (`Workflow`, `Context`) | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested; Cloud Run deploy path added |
 | **Scale Agents Dashboard UI** (FastAPI + JS) | `app_server.py`, `ui/` | — | Manual |
 | **CUJ 1: Happy Path Restock** (E2E) | Full stack | `tests/e2e/test_cuj1_happy_path.py` | Tested |
 | **Cross-Framework Error Handling / Re-planning** (CUJ 3) | `agents/control_room/agent.py` | `tests/e2e/test_cuj3_replanning.py` | Tested |
@@ -357,13 +391,14 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 
 ### Phase 1: Deploy Agents to Agent Engine (DONE)
 
-1. **Created two service accounts** with distinct IAM roles (`scripts/setup_iam.sh`):
+1. **Created three service accounts** with distinct IAM roles (`scripts/setup_iam.sh`):
    * `planning-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `projects/gcp-samples-ic0/roles/planningAgentRuntime` (custom least-privilege model + Agent Engine access)
    * `execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `roles/aiplatform.user` + `roles/aiplatform.editor` (full access)
+   * `control-room-sa@gcp-samples-ic0.iam.gserviceaccount.com` — `projects/gcp-samples-ic0/roles/planningAgentRuntime` (Cloud Run-hosted ADK 2.0 Workflow + Gemini access)
 2. **Deployed the Planning Agent** (LangGraph) to Agent Engine via native SDK wrapper deployment (`scripts/deploy_to_agent_engine.py`)
    * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/1293809076299366400`
    * Created directly with `serviceAccount=planning-agent-sa@...` so startup runs under the restricted identity
-3. **Control Room Agent** — **BLOCKED.** ADK `Workflow` (`google.adk.workflow`) is an alpha feature in `google-adk 2.0.0a2` that cannot be deployed via Agent Engine's source-based deployment (`adk deploy agent_engine`). BYOC deployment is now available (GA April 2026) but `Workflow` still lacks the serialization interface. The Control Room runs locally and calls the Planning Agent via A2A. The identity boundary is still enforced on the Planning Agent side.
+3. **Control Room Agent** — **Cloud Run path added.** ADK `Workflow` (`google.adk.workflow`) is still blocked for Agent Engine source deployment, and Agent Engine BYOC is still blocked in this project by the container policy error. The preserved ADK 2.0 Workflow now runs via `app_server.py` on Cloud Run and calls the Planning Agent over A2A using `PLANNER_AGENT_URL`.
 
 ### Phase 2: Enforce IAM Boundaries (DONE)
 
@@ -408,13 +443,14 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 * [x] Authenticated (`kazunori279@gmail.com`)
 * [x] Planner graph security path implemented and tested
 * [x] Control Room security block handling implemented and tested
-* [x] Service accounts created (`planning-agent-sa`, `execution-agent-sa`)
+* [x] Service accounts created (`planning-agent-sa`, `execution-agent-sa`, `control-room-sa`)
 * [x] IAM roles bound (custom `planningAgentRuntime` for planning, `aiplatform.editor` for execution)
 * [x] Execution Crew deployed to Agent Engine (`reasoningEngines/4212141634835447808`)
 * [x] Execution Crew effective identity verified (`execution-agent-sa`)
 * [x] Planning Agent deployed to Agent Engine (`reasoningEngines/1293809076299366400`)
 * [x] Planning Agent effective identity verified (`planning-agent-sa`)
-* [ ] **BLOCKED:** Deploy Control Room to Agent Engine — ADK `Workflow` is an alpha feature (`google-adk 2.0.0a2`) that doesn't serialize for Agent Engine's source-based deployment. BYOC is also still blocked in this project by the Agent Engine container deployment policy error: `One or more users named in the policy do not belong to a permitted customer.` Current options: (a) refactor to `LlmAgent` (loses Workflow demo), (b) deploy to Cloud Run instead, or (c) wait for ADK / platform support to change.
+* [x] **Cloud Run path added for the Control Room** — `app_server.py` now hosts the ADK 2.0 `Workflow` on Cloud Run via `Dockerfile.control-room` and `scripts/deploy_control_room_cloud_run.sh`, preserving the Workflow demo while avoiding the current Agent Engine serialization blocker.
+* [ ] **BLOCKED:** Deploy Control Room to Agent Engine — ADK `Workflow` is still an alpha feature (`google-adk 2.0.0a2`) that doesn't serialize for Agent Engine's source-based deployment. BYOC is also still blocked in this project by the Agent Engine container deployment policy error: `One or more users named in the policy do not belong to a permitted customer.`
 * [x] ~~**RESOLVED:** Deploy Execution Crew (CrewAI) to Agent Engine~~ — Source deployment now bundles a patched local CrewAI wheel built by `scripts/build_patched_crewai_wheel.py`, stripping the problematic Jinja2 CLI template `.py` files before Agent Engine runs `compileall`. The current deployed engine is `projects/761793285222/locations/us-central1/reasoningEngines/4212141634835447808`, and startup has been verified in Agent Engine logs.
 * [x] Redeploy Planning Agent natively (LangGraph via `agent_engines.create()`) — planner now deploys as `projects/761793285222/locations/us-central1/reasoningEngines/1293809076299366400`
 * [x] Live destructive CUJ 2 prompt blocked by IAM
@@ -428,9 +464,9 @@ Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the cur
 | ---- | --------------------- | ------------- | --- |
 | **Execution Agents** | Supply Chain, Customer Support, Inventory agents | One generic logistics agent | Missing specialized agent swarm |
 | **External Systems** | ERP, CRM integrations on both sides | None | No ERP/CRM connectors |
-| **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Planning Agent and Execution Crew both run under their intended service accounts, and the planner’s destructive path is blocked by its least-privilege runtime role | Control Room still runs locally |
+| **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Planning Agent and Execution Crew both run under their intended service accounts, and the planner’s destructive path is blocked by its least-privilege runtime role | Control Room now has a Cloud Run runtime identity, but the full stack is split across Cloud Run + Agent Engine |
 | **Session Management** | Enhanced session management | Partially addressed via ADK 2.0 `InMemoryRunner` & `Session` | Need persistent remote session DB |
-| **Agent Engine** | Core Runtime hosting both layers | Planning Agent deployed to Agent Engine; Execution Crew deployed via patched-wheel source deployment | Control Room runs locally |
+| **Agent Engine** | Core Runtime hosting both layers | Planning Agent deployed to Agent Engine; Execution Crew deployed via patched-wheel source deployment | Control Room uses Cloud Run because ADK 2.0 `Workflow` still cannot deploy to Agent Engine source mode in this project |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
 | **Multiple MCP connections** | MCP on both planning and execution sides | MCP only on execution side | Planning Agent has no MCP tools |
 

@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import json
+import logging
+import os
+
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
 from google.cloud import aiplatform_v1
@@ -27,10 +32,12 @@ try:
     from agents.config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT, SECURITY_REPORT_PROMPT
     from agents.config.default_config import config
 except ImportError:
-    from config.prompts import PLANNER_SYSTEM_PROMPT, REPORT_GENERATOR_PROMPT, SECURITY_REPORT_PROMPT
+    from config.prompts import (
+        PLANNER_SYSTEM_PROMPT,
+        REPORT_GENERATOR_PROMPT,
+        SECURITY_REPORT_PROMPT,
+    )
     from config.default_config import config
-import json
-import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("PlannerAgent")
@@ -102,19 +109,39 @@ class PlannerNodes:
         task_description = state.get("item_description") or "Unknown Item"
         budget = state.get("max_budget") or 50.0
         quantity = state.get("quantity_needed") or 1
+        loop = asyncio.get_running_loop()
 
         # Internal helper to push to dashboard
         def push_to_dashboard(msg: str, name: str = "execution"):
             try:
                 import requests
+                status_url = os.environ.get(
+                    "CONTROL_ROOM_STATUS_URL",
+                    "http://127.0.0.1:8000/api/push_status",
+                )
                 # Use synchronous requests here since we are in a node or thread
                 requests.post(
-                    "http://127.0.0.1:8000/api/push_status", 
+                    status_url,
                     data={"name": name, "text": msg},
                     timeout=1.0
                 )
             except Exception:
-                pass 
+                pass
+
+        async def publish_execution_update(msg: str, name: str = "execution"):
+            if self.on_update:
+                await self.on_update(msg)
+            else:
+                push_to_dashboard(msg, name=name)
+
+        def schedule_execution_update(msg: str, name: str = "execution") -> None:
+            if self.on_update:
+                asyncio.run_coroutine_threadsafe(
+                    self.on_update(msg),
+                    loop,
+                )
+            else:
+                push_to_dashboard(msg, name=name)
 
         # --- Real-time Thought Stream Integration ---
         # Intercept CrewAI logs and pipe them to the dashboard
@@ -126,7 +153,7 @@ class PlannerNodes:
                     if any(x in log_msg for x in ["Working Agent:", "Action:", "Thought:", "Final Answer:"]):
                         # Strip some of the internal formatting for cleaner UI
                         clean_msg = log_msg.split(" - ")[-1] if " - " in log_msg else log_msg
-                        push_to_dashboard(clean_msg)
+                        schedule_execution_update(clean_msg)
                 except Exception:
                     pass
 
@@ -135,10 +162,9 @@ class PlannerNodes:
         # Attach to both crewai and the root logger during execution
         logging.getLogger("crewai").addHandler(thought_handler)
 
-        if self.on_update:
-            await self.on_update(f"Executor: Starting CrewAI for '{task_description}'...")
-        
-        push_to_dashboard(f"Starting CrewAI for '{task_description}'...")
+        await publish_execution_update(
+            f"Executor: Starting CrewAI for '{task_description}'..."
+        )
 
         try:
             if self.crew_engine is not None:
@@ -169,10 +195,9 @@ class PlannerNodes:
                         tool_msg = f" using {step.tool}"
                     
                     msg = f"**{agent_role}**: Finished a step{tool_msg}."
-                    push_to_dashboard(msg)
+                    schedule_execution_update(msg)
 
                 # Use asyncio.to_thread to keep the event loop alive while CrewAI runs
-                import asyncio
                 result = await asyncio.to_thread(
                     crew.run,
                     task_description=task_description,
@@ -181,10 +206,8 @@ class PlannerNodes:
                     step_callback=crew_step_callback
                 )
 
-            if self.on_update:
-                await self.on_update("Executor: CrewAI task completed.")
-            
-            push_to_dashboard("CrewAI task completed successfully.")
+            await publish_execution_update("Executor: CrewAI task completed.")
+            await publish_execution_update("CrewAI task completed successfully.")
 
             # Clean up handler
             logging.getLogger("crewai").removeHandler(thought_handler)
@@ -197,8 +220,8 @@ class PlannerNodes:
 
         except Exception as e:
             logger.error(f"Execution Swarm failed: {e}")
-            if self.on_update:
-                await self.on_update(f"Executor: Failed with error: {str(e)}")
+            await publish_execution_update(f"Executor: Failed with error: {str(e)}")
+            logging.getLogger("crewai").removeHandler(thought_handler)
             return {
                 "current_step": "executed",
                 "delegation_status": "failed",

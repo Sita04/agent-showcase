@@ -5,6 +5,7 @@ run without GCP credentials or a live server.
 """
 
 import pytest
+import json
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from agents.control_room.agent import (
@@ -18,24 +19,38 @@ from agents.control_room.agent import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+class _MockStreamResponse:
+    """Minimal async stream response for httpx.AsyncClient.stream tests."""
+
+    def __init__(self, lines, status_code: int = 200):
+        self.status_code = status_code
+        self._lines = lines
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
+
 def _a2a_response(text: str, status_code: int = 200):
-    """Build a mock httpx response with the given artifact text."""
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = {
+    """Build a streaming A2A response with the given artifact text."""
+    payload = {
         "result": {
             "artifacts": [{"parts": [{"text": text}]}],
         }
     }
-    return resp
+    return _MockStreamResponse([json.dumps(payload)], status_code=status_code)
 
 
 def _a2a_error_response(error_msg: str):
-    """Build a mock httpx response with a JSON-RPC error."""
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = {"error": {"code": -1, "message": error_msg}}
-    return resp
+    """Build a streaming response with a JSON-RPC error payload."""
+    payload = {"error": {"code": -1, "message": error_msg}}
+    return _MockStreamResponse([json.dumps(payload)], status_code=200)
 
 
 def _mock_ctx(**extra_state):
@@ -71,8 +86,8 @@ class TestControlRoomHappyPath:
     @pytest.mark.asyncio
     async def test_success_on_first_attempt(self):
         ctx = _mock_ctx()
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.return_value = _a2a_response(
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.return_value = _a2a_response(
                 "SUCCESS: PO-999 created for 5x Vintage Mugs. Total $45."
             )
 
@@ -80,14 +95,14 @@ class TestControlRoomHappyPath:
 
         assert result["status"] == "Success"
         assert "PO-999" in result["report"]
-        assert mock_post.call_count == 1
+        assert mock_stream.call_count == 1
         assert "SUCCESS" in ctx.state["final_outcome"]
 
     @pytest.mark.asyncio
     async def test_replanner_not_invoked_on_success(self):
         ctx = _mock_ctx()
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.return_value = _a2a_response("SUCCESS: PO-001 created.")
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.return_value = _a2a_response("SUCCESS: PO-001 created.")
 
             await _run_node(ctx, "Order mugs")
 
@@ -100,30 +115,30 @@ class TestControlRoomReplanning:
     @pytest.mark.asyncio
     async def test_replan_on_not_found(self):
         ctx = _mock_ctx()
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.side_effect = [
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.side_effect = [
                 _a2a_response("FAILED: Item not found in vector store."),
                 _a2a_response("SUCCESS: PO-555 created for collectible mugs."),
             ]
 
             result = await _run_node(
                 ctx, "Order 5 Extremely Rare Discontinued Ghost Mug"
-            )
+        )
 
         assert result["status"] == "Success"
-        assert mock_post.call_count == 2
+        assert mock_stream.call_count == 2
         ctx.run_node.assert_called_once()
 
         # Second call should use the broadened objective from the replanner
-        second_payload = mock_post.call_args_list[1][1]["json"]
+        second_payload = mock_stream.call_args_list[1][1]["json"]
         second_text = second_payload["params"]["message"]["parts"][0]["text"]
         assert "Broadened search" in second_text
 
     @pytest.mark.asyncio
     async def test_replan_on_discontinued(self):
         ctx = _mock_ctx()
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.side_effect = [
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.side_effect = [
                 _a2a_response("The item was discontinued and is no longer available."),
                 _a2a_response("SUCCESS: PO-777 created."),
             ]
@@ -131,13 +146,13 @@ class TestControlRoomReplanning:
             result = await _run_node(ctx, "Order discontinued item")
 
         assert result["status"] == "Success"
-        assert mock_post.call_count == 2
+        assert mock_stream.call_count == 2
 
     @pytest.mark.asyncio
     async def test_replan_on_no_inventory(self):
         ctx = _mock_ctx()
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.side_effect = [
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.side_effect = [
                 _a2a_response("No inventory found for the requested item."),
                 _a2a_response("SUCCESS: PO-888 created."),
             ]
@@ -153,8 +168,8 @@ class TestControlRoomFailure:
     @pytest.mark.asyncio
     async def test_max_attempts_exhausted(self):
         ctx = _mock_ctx()
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.side_effect = [
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.side_effect = [
                 _a2a_response("Item not found."),
                 _a2a_response("Item not found again."),
             ]
@@ -162,7 +177,7 @@ class TestControlRoomFailure:
             result = await _run_node(ctx, "Order impossible item")
 
         assert result["status"] == "Failed"
-        assert mock_post.call_count == 2
+        assert mock_stream.call_count == 2
         assert "Failed after 2 attempts" in ctx.state["final_outcome"]
 
 
@@ -172,8 +187,8 @@ class TestControlRoomErrorHandling:
     @pytest.mark.asyncio
     async def test_http_error_status(self):
         ctx = _mock_ctx()
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.side_effect = [
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.side_effect = [
                 _a2a_response("", status_code=500),
                 _a2a_response("SUCCESS: PO-100 created."),
             ]
@@ -181,13 +196,13 @@ class TestControlRoomErrorHandling:
             result = await _run_node(ctx, "Order mugs")
 
         assert result["status"] == "Success"
-        assert mock_post.call_count == 2
+        assert mock_stream.call_count == 2
 
     @pytest.mark.asyncio
     async def test_jsonrpc_error_response(self):
         ctx = _mock_ctx()
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.side_effect = [
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.side_effect = [
                 _a2a_error_response("Internal server error"),
                 _a2a_response("SUCCESS: PO-200 created."),
             ]
@@ -195,13 +210,13 @@ class TestControlRoomErrorHandling:
             result = await _run_node(ctx, "Order mugs")
 
         assert result["status"] == "Success"
-        assert mock_post.call_count == 2
+        assert mock_stream.call_count == 2
 
     @pytest.mark.asyncio
     async def test_connection_error(self):
         ctx = _mock_ctx()
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.side_effect = [
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.side_effect = [
                 ConnectionError("Connection refused"),
                 _a2a_response("SUCCESS: PO-300 created."),
             ]
@@ -209,23 +224,21 @@ class TestControlRoomErrorHandling:
             result = await _run_node(ctx, "Order mugs")
 
         assert result["status"] == "Success"
-        assert mock_post.call_count == 2
+        assert mock_stream.call_count == 2
 
     @pytest.mark.asyncio
     async def test_empty_artifacts(self):
         ctx = _mock_ctx()
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.json.return_value = {"result": {"artifacts": []}}
+        resp = _MockStreamResponse([json.dumps({"result": {"artifacts": []}})])
 
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-            mock_post.side_effect = [resp, _a2a_response("SUCCESS: PO-400 created.")]
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            mock_stream.side_effect = [resp, _a2a_response("SUCCESS: PO-400 created.")]
 
             result = await _run_node(ctx, "Order mugs")
 
         # "No report returned." doesn't contain failure keywords, so it should succeed
         assert result["status"] == "Success"
-        assert mock_post.call_count == 1
+        assert mock_stream.call_count == 1
 
 
 class TestCreateReplannerAgent:
