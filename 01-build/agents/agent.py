@@ -94,6 +94,7 @@ async def shopping_workflow(ctx: Context, node_input):
             """
         )
         await ctx.run_node(selection_agent, node_input)
+            
         ctx.state["awaiting_selection"] = False
         return {"status": "Completed! End of Shopping Workflow."}
 
@@ -104,7 +105,9 @@ async def shopping_workflow(ctx: Context, node_input):
         user_reply = _extract_text(node_input).lower().strip()
         # Accept a much broader set of positive affirmations
         positive_affirmations = ["yes", "y", "sure", "ok", "okay", "approve", "approved", "looks good", "proceed", "go ahead"]
-        if any(word in user_reply for word in positive_affirmations):
+        
+        import re
+        if any(re.search(rf"\b{word}\b", user_reply) for word in positive_affirmations):
             # User approved! Clear flag and load the plan to proceed to scouts
             ctx.state["awaiting_approval"] = False
             plan = _parse_plan_from_state(ctx, None)
@@ -118,6 +121,11 @@ async def shopping_workflow(ctx: Context, node_input):
             ctx.state["awaiting_approval"] = True
             
             plan_dict = plan.model_dump() if hasattr(plan, 'model_dump') else plan
+            
+            # Update A2UI in state so the UI cards match the new plan!
+            from agents.views.plan import render_plan_ui
+            ctx.state["proposed_plan_ui"] = render_plan_ui(plan_dict)
+            
             components_md = "\n".join([f"- **{c.get('category')}**: ${c.get('budget_allocation')} ({c.get('description_prompt')})" for c in plan_dict.get('components', [])])
             
             msg = (
@@ -138,15 +146,11 @@ async def shopping_workflow(ctx: Context, node_input):
         
         ctx.state["awaiting_approval"] = True
         
+        from agents.views.plan import render_plan_ui
         plan_dict = plan.model_dump() if hasattr(plan, 'model_dump') else plan
-        components_md = "\n".join([f"- **{c.get('category')}**: ${c.get('budget_allocation')} ({c.get('description_prompt')})" for c in plan_dict.get('components', [])])
+        ctx.state["proposed_plan_ui"] = render_plan_ui(plan_dict)
         
-        msg = (
-            f"### Proposed Blueprint: {plan_dict.get('theme', 'Custom')}\n\n"
-            f"**Total Budget:** ${plan_dict.get('total_budget', 0)}\n\n"
-            f"**Allocations:**\n{components_md}\n\n"
-            f"👉 *Do you approve of this budget and breakdown? Reply 'Yes' to proceed, or suggest adjustments!*"
-        )
+        msg = "👉 *I've generated a proposed blueprint based on your request. Do you approve? Reply 'Yes' to proceed, or suggest adjustments!*"
         await _speak(ctx, msg, f"init_{run_id}_{uuid.uuid4().hex[:4]}")
         return {"status": "Awaiting human approval"}
 
@@ -156,13 +160,13 @@ async def shopping_workflow(ctx: Context, node_input):
         scout_tasks = []
         # Since we use a schema, we use dot notation: plan.components
         for i, component in enumerate(plan.components): 
-            query_string = f"{component.category} {component.description_prompt}"
+            query_string = component.description_prompt
             budget_val = component.budget_allocation
             
             # Instantiate a uniquely configured agent with baked-in prompt instructions
             # We include `attempt` and `run_id` in the name so loops and reruns don't collide!
             unique_name = f"product_scout_node_{run_id}_loop{attempt}_idx{i}"
-            dynamic_scout = create_scout_agent(query=query_string, budget=budget_val, name=unique_name)
+            dynamic_scout = create_scout_agent(category=component.category, query=query_string, budget=budget_val, name=unique_name)
             
             # Since all context is now in the prompt, pass a simple wake word message
             task = ctx.run_node(dynamic_scout, "Execute search.")

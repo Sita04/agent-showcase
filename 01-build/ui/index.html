@@ -9,27 +9,39 @@
 </head>
 <body>
     <div class="glass-container">
-        <header>
-            <div>
-                <h1>Shopping Squad</h1>
-                <div class="subtitle">AI-Powered Hyper-Personalized Curation</div>
+        <div class="persona-sidebar">
+            <h2>Select Persona</h2>
+            <select id="persona-select">
+                <option value="lucy">Lucy (Mid 20s, Trendy)</option>
+                <option value="adam" selected>Adam (30s, Outdoorsy)</option>
+                <option value="elena">Elena (40s, Professional)</option>
+            </select>
+            <div id="persona-details" class="persona-details">
+                <p>Select a persona to see details.</p>
             </div>
-                        <div class="header-right">
-                <div class="status-badge" id="bot-status">⚡ Online</div>
-                <div class="cart-btn" id="cart-btn">🛒 <span id="cart-count">0</span></div>
-            </div>
-        </header>
-
-        <div class="chat-window" id="chat-window">
-            <div class="message agent">👋 Hello! I'm your Personal Shopper. Describe what you are looking for (e.g., "Camping trip gear for 2 people, budget $500") or upload an image of a style you like!</div>
         </div>
 
-        <div class="controls">
-            <div class="input-wrapper">
-                <input type="file" id="image-upload" accept="image/*" style="display: none;">
-                <input type="text" id="user-input" placeholder="Type your request here...">
-                <label for="image-upload" class="upload-btn">📎</label>
-                <button class="send-btn" id="send-btn">Search</button>
+        <div class="main-content">
+            <header>
+                <div>
+                    <h1>Shopping Squad</h1>
+                    <div class="subtitle">AI-Powered Hyper-Personalized Curation</div>
+                </div>
+                <div class="header-right">
+                    <div class="status-badge" id="bot-status">⚡ Online</div>
+                    <div class="cart-btn" id="cart-btn">🛒 <span id="cart-count">0</span></div>
+                </div>
+            </header>
+
+            <div class="chat-window" id="chat-window">
+                <div class="message agent">👋 Hello! I'm your Personal Shopper. What would you like to shop for today?</div>
+            </div>
+
+            <div class="controls">
+                <div class="input-wrapper">
+                    <input type="text" id="user-input" placeholder="Type your request here...">
+                    <button class="send-btn" id="send-btn">Send</button>
+                </div>
             </div>
         </div>
     </div>
@@ -45,6 +57,17 @@
         <div class="cart-footer">
             <div class="total-price">Total: $<span id="cart-total">0.00</span></div>
             <button class="checkout-btn">Proceed to Checkout</button>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h3>Clear Session?</h3>
+            <p>Changing persona will clear your cart and conversation. Proceed?</p>
+            <div class="modal-actions">
+                <button id="modal-cancel" class="modal-btn secondary">Cancel</button>
+                <button id="modal-ok" class="modal-btn primary">OK</button>
+            </div>
         </div>
     </div>
 

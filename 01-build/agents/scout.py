@@ -13,7 +13,7 @@ import os
 # Define the path to your MCP server
 MCP_SERVER_PATH = os.path.join(os.getcwd(), "mcp", "server.py")
 
-def create_scout_agent(query: str, budget: float, name="product_scout_node"):
+def create_scout_agent(category: str, query: str, budget: float, name="product_scout_node"):
     return LlmAgent(
         name=name,
         model="gemini-2.5-flash",
@@ -22,7 +22,7 @@ def create_scout_agent(query: str, budget: float, name="product_scout_node"):
         You are a Specialist Scout. Your goal is to find AT LEAST 3 perfect items that match 
         the user's query and fit strictly within the provided budget.
         
-        Category: {query.split(' ')[0]}
+        Category: {category}
         
         User Query: {query}
         Maximum Budget: {budget}
@@ -32,12 +32,13 @@ def create_scout_agent(query: str, budget: float, name="product_scout_node"):
         3. IMPORTANT: Use the `filter` parameter to guarantee items are strictly under budget!
            Example: `{{"price": {{"$lte": {budget}}}}}` 
         4. Select exactly 3 different options that are strictly under the Maximum Budget.
-        5. CRITICAL UX RULE: You must present your findings to the user in a friendly, beautiful Markdown format. Give each discovered item a bold title, format its price in green (`<span style='color:green'>$X</span>`), and add a 1-sentence description. DO NOT output huge raw JSON blocks to the user.
-        6. At the VERY END of your message, you MUST append your structured JSON data secretly inside an HTML comment box. The frontend UI will hide the comment, so the user won't see the ugly code! Include the 'Score' from the search tool as the 'similarity' value!
+        5. FIND SIMILAR: If asked to find similar items to a reference item, use `search_products` with `dataset_id="mercari3m_text_similarity"` and pass the reference item's name and description as the query.
+        6. CRITICAL UX RULE: You must present your findings to the user in a friendly, beautiful Markdown format. Give each discovered item a bold title, format its price in green (`<span style='color:green'>$X</span>`), and add a 1-sentence description. DO NOT output huge raw JSON blocks to the user.
+        7. At the VERY END of your message, you MUST append your structured JSON data secretly inside an HTML comment box. The frontend UI will hide the comment, so the user won't see the ugly code! Include the 'Score' from the search tool as the 'similarity' value!
         Format EXACTLY like this:
         <!--[JSON_PAYLOAD]
         {{
-           "category": "CategoryName",
+           "category": "{category}",
            "options": [
               {{"id": "...", "name": "...", "price": 25.0, "img_url": "...", "url": "...", "description": "...", "similarity": 0.95}}
            ]

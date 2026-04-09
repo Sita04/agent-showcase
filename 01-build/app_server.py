@@ -49,13 +49,19 @@ async def health_check():
     return {"status": "ok", "message": "FastAPI is running"}
 
 @app.post("/api/chat")
-async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] = File(None)):
-    session_id = "demo_session_1"
+async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] = File(None), persona: Optional[str] = Form(None), session_id: Optional[str] = Form(None)):
+    if not session_id:
+        session_id = "demo_session_1"
     user_id = "demo_user_1"
     
     parts = []
-    if prompt:
-        parts.append(GenAIPart.from_text(text=prompt))
+    
+    full_prompt = prompt or ""
+    if persona and persona != "none":
+        full_prompt = f"[User Persona: {persona}] {full_prompt}".strip()
+        
+    if full_prompt:
+        parts.append(GenAIPart.from_text(text=full_prompt))
     if image:
         image_bytes = await image.read()
         parts.append(GenAIPart.from_bytes(data=image_bytes, mime_type=image.content_type))
@@ -65,6 +71,140 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
 
     new_message = GenAIContent(role="user", parts=parts)
     
+    # Intercept scenario requests
+    if prompt in ["Show scenarios", "Show my scenarios", "Here are some scenarios"]:
+        if persona == "adam":
+            return {
+                "status": "success",
+                "a2ui_data": {
+                    "beginRendering": {
+                        "surfaceId": "scenario-options",
+                        "content": {
+                            "Column": {
+                                "children": [
+                                    {
+                                        "Button": {
+                                            "child": {"Text": {"text": "Solo Yosemite Trip ($600)"}},
+                                            "action": {
+                                                "command": "send_message",
+                                                "params": {"message": "Solo backpacking trip to Yosemite. Budget: $600"}
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "Button": {
+                                            "child": {"Text": {"text": "Daily Bicycle Commute ($300)"}},
+                                            "action": {
+                                                "command": "send_message",
+                                                "params": {"message": "Upgrade daily bicycle commute gear. Budget: $300"}
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "Button": {
+                                            "child": {"Text": {"text": "Expedition Prep ($1200)"}},
+                                            "action": {
+                                                "command": "send_message",
+                                                "params": {"message": "Durable gear for a hiking expedition. Budget: $1200"}
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        elif persona == "lucy":
+            return {
+                "status": "success",
+                "a2ui_data": {
+                    "beginRendering": {
+                        "surfaceId": "scenario-options",
+                        "content": {
+                            "Column": {
+                                "children": [
+                                    {
+                                        "Button": {
+                                            "child": {"Text": {"text": "Music Festival Tech ($250)"}},
+                                            "action": {
+                                                "command": "send_message",
+                                                "params": {"message": "Aesthetic tech for a music festival. Budget: $250"}
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "Button": {
+                                            "child": {"Text": {"text": "Art Studio Supplies ($150)"}},
+                                            "action": {
+                                                "command": "send_message",
+                                                "params": {"message": "Supplies for my art studio. Budget: $150"}
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "Button": {
+                                            "child": {"Text": {"text": "Aesthetic Tech ($200)"}},
+                                            "action": {
+                                                "command": "send_message",
+                                                "params": {"message": "Desk accessories and tech. Budget: $200"}
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        elif persona == "elena":
+            return {
+                "status": "success",
+                "a2ui_data": {
+                    "beginRendering": {
+                        "surfaceId": "scenario-options",
+                        "content": {
+                            "Column": {
+                                "children": [
+                                    {
+                                        "Button": {
+                                            "child": {"Text": {"text": "Business Casual Wardrobe ($800)"}},
+                                            "action": {
+                                                "command": "send_message",
+                                                "params": {"message": "Business casual capsule wardrobe. Budget: $800"}
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "Button": {
+                                            "child": {"Text": {"text": "Corporate Gala ($300)"}},
+                                            "action": {
+                                                "command": "send_message",
+                                                "params": {"message": "Elegant dress for a corporate gala. Budget: $300"}
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "Button": {
+                                            "child": {"Text": {"text": "Weekend Getaway ($400)"}},
+                                            "action": {
+                                                "command": "send_message",
+                                                "params": {"message": "Casual chic outfits for a weekend getaway. Budget: $400"}
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        else:
+            return {
+                "status": "success",
+                "reply": "Please select a persona to see scenarios."
+            }
+
     reply_text = ""
     # Run the workflow and collect outputs
     success_triggered = False
@@ -90,6 +230,9 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
             for p in event.content.parts:
                 txt = p.get('text') if isinstance(p, dict) else getattr(p, 'text', '')
                 if txt:
+                    # Ignore system status messages
+                    if txt.strip().lower().startswith("status:"):
+                        continue
                     reply_text += txt
 
     # Read session state to see if sub-agents found anything
@@ -105,18 +248,19 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
         found_options = session.state.get("found_options", [])
 
     response_data = {"status": "success"}
+    
+    proposed_plan_ui = session.state.get("proposed_plan_ui")
+    
     if found_options:
-        # Flatten the list of options from CartItemOptions
-        all_products = []
-        for group in found_options:
-            all_products.extend(group.get("options", []))
         # Use A2UI view to render products
-        response_data["a2ui_data"] = render_search_ui(all_products)
+        response_data["a2ui_data"] = render_search_ui(found_options, persona)
+    elif proposed_plan_ui:
+        response_data["a2ui_data"] = proposed_plan_ui
 
-    if reply_text:
+    if reply_text and not found_options:
         response_data["reply"] = reply_text
     elif not found_options:
-        response_data["reply"] = "Processing... check terminal logs."
+        response_data["reply"] = ""
 
     return response_data
 
@@ -129,6 +273,24 @@ class CartItem(BaseModel):
     name: str
     price: float
     imgSrc: Optional[str] = None
+
+@app.post("/api/cart")
+async def cart_action(action: str = Form(...), sku: str = Form(...)):
+    # This endpoint handles cart actions silently without involving the ADK workflow.
+    return {"status": "success", "message": f"Action {action} for SKU {sku} processed"}
+
+@app.post("/api/reset")
+async def reset_session():
+    session_id = "demo_session_1"
+    user_id = "demo_user_1"
+    session = await _runner.session_service.get_session(
+        app_name="shopping_squad",
+        user_id=user_id,
+        session_id=session_id
+    )
+    if session:
+        session.state.clear()
+    return {"status": "success", "message": "Session cleared"}
 
 @app.post("/api/create-checkout-session")
 async def create_checkout_session(items: List[CartItem], request: Request):

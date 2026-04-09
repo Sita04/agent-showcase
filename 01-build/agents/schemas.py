@@ -24,6 +24,7 @@ class ShoppingPlan(BaseModel):
     theme: str = Field(..., description="The overarching theme (e.g., '90s Grunge' or 'Ultralight Backpacking')")
     total_budget: float = Field(..., description="The user's maximum spend for the entire bundle")
     components: List[ShoppingComponent] = Field(..., description="List of items required to fulfill the request")
+    reasoning: str = Field(..., description="Detailed paragraph explaining the style choices and occasion fit")
 
 class CartItem(BaseModel):
     """
