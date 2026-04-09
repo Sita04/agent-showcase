@@ -39,6 +39,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --service-account "${SERVICE_ACCOUNT}" \
   --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},PLANNING_AGENT_ENGINE_ID=${PLANNING_AGENT_ENGINE_ID},GOOGLE_GENAI_USE_VERTEXAI=TRUE" \
   --concurrency 10 \
+  --min-instances 1 \
   --timeout 300 \
   --memory 2Gi \
   --allow-unauthenticated
