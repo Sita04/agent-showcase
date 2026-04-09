@@ -1,61 +1,55 @@
-# Shopping Squad
+# Personalized Shopping Agent - "Shopping Squad"
 
-A hyper-personalized, multi-agent shopping workflow built on the Google Agent Development Kit (ADK) 2.0.
+A premium, persona-driven shopping concierge application powered by Gemini and built with the Retail Agent Development Suite (ADK) and A2UI (Server-Driven UI).
 
-The Shopping Squad utilizes dynamic ADK workflow graphs and the Model Context Protocol (MCP) to decompose a vague shopping request into a structured plan, continuously interacting with the human user at critical checkpoints.
+## 🌟 Features
 
-## Architecture & Workflow
+### 🎭 Persona-Driven Experience
+- **Tailored Scenarios**: Choose between different personas (Adam, Lucy, Elena), each with their own set of curated shopping scenarios.
+- **Dynamic Routing**: The agent adapts its search and planning based on the active persona's preferences and budget.
+- **Session Management**: Smooth transition between personas with a custom confirmation modal that protects your active session.
 
-The workflow executes in 3 distinct Human-In-The-Loop (HitL) phases:
+### 💎 Premium UI/UX
+- **Glassmorphic Design**: A stunning, modern interface with rich gradients, glassmorphism (blur effects), and smooth transitions.
+- **Intelligent Chat**: A clean conversational interface with smart follow-up actions.
+- **Contextual Action Cards**: Product results are displayed in beautiful, actionable cards with direct "Add to Cart" capabilities.
+- **Full-Width Follow-Up Menus**: At the end of a search, a full-width card presents natural follow-up options based on your persona.
 
-### Phase 1: Plan Generation & Budget Approval
+### 🛒 Advanced Cart Management
+- **Integrated Cart**: A side drawer cart that slides in and out, keeping your shopping flow uninterrupted.
+- **Quantity Counter**: Easily see how many items you have selected.
+- **Silent Actions**: Adding or removing items from the cart updates the UI smoothly without cluttering the chat history with system messages.
+- **Stripe Checkout**: Ready-to-use integration for creating payment sessions via `/api/create-checkout-session`.
 
-- **Planner Agent (`planner.py`)**: Uses `gemini-2.5-flash` with structured output schemas to decompose a general user request into a `ShoppingPlan` with specific `ShoppingComponent` elements and budget allocations.
-- **HitL Pause**: The workflow pauses and waits for the user to explicitly approve or reject the budget breakdown. If rejected, the Planner dynamically re-calculates the plan based on user feedback.
+## 🛠️ Technology Stack
 
-### Phase 2: Parallel Scouting & Automated Math Evaluator
+- **Backend**: Python, FastAPI / Starlette
+- **Frontend**: Vanilla JavaScript, CSS3 (with advanced glassmorphism and CSS variables), Semantic HTML5
+- **AI Integration**: Google Gen AI SDK (Gemini) via ADK
+- **UI Framework**: A2UI (Server-Driven UI) for dynamic card rendering
 
-- **Scout Agents (`scout.py`)**: Spawned dynamically for each approved category and executed in parallel. Each scout connects to a remote MCP server using vector search to retrieve exactly 3 physical product options strictly under the allocated budget limit.
-- **Evaluator Node (`evaluator.py`)**: A standard Python node that parses the JSON output of all scouts, and algebraically confirms that the sum of the cheapest option from all categories is strictly less than or equal to the master budget.
+## 🚀 Getting Started
 
-### Phase 3: Final Verification & Cart Formatting
+### Prerequisites
+- Python 3.10+
+- Vertex AI Project 
+- Stripe Secret Key (set as `STRIPE_SECRET_KEY` environment variable)
 
-- **HitL Pause**: Once the Evaluator succeeds, the workflow pauses again, presenting all the retrieved options to the user.
-- **Selection Agent**: Once the user chooses their preferred items (e.g. "I'll take the Kelty tent and the MOON LENCE bag"), a final LLM maps the natural language to the exact products and generates a gorgeous Markdown order confirmation.
+### Running the Application
 
-See [architecture.md](./architecture.md) for a visual diagram of the execution flow and UX patterns.
-
-## Project Structure
-
-```text
-01_build/
-├── agents/             # ADK Node logic and logic orchestration
-│   ├── agent.py        # The root sequential workflow and HitL state machine
-│   ├── evaluator.py    # Python evaluation and budget constraint gating
-│   ├── planner.py      # LLM Agent generating Pydantic-shaped budgets
-│   ├── scout.py        # LLM Agent performing vector search via MCP
-│   └── schemas.py      # Pydantic Core Models (CartItem, ShoppingPlan)
-├── mcp/                # Tools and Backend Access
-│   └── server.py       # Proxy converting local tool calls to Cloud Run REST APIs
-├── architecture.md     # Visual workflow map and UX tricks
-└── README.md
-```
-
-## Setup & Running
-
-1. Ensure your environment has the required dependencies, including ADK's LiteLLM abstractions for complex tool routing:
-
+1. Start the backend server:
    ```bash
-   pip install "google-adk[extensions]" mcp httpx
+   python3 app_server.py
    ```
 
-2. Start the ADK Web UI from the squad root (01_build/agents folder):
+2. Open your browser and navigate to the local address provided by the server (usually `http://localhost:8000` or as configured).
 
-   ```bash
-   adk web
-   ```
+## 📁 Project Structure
 
-3. Test your `shopping_workflow` by providing the initial prompt:
-   > "I want an ultralight camping kit. My budget is $300."
-
-Follow the instructions in the chat UI to approve the budget and make your final Cartesian selections!
+- `app_server.py`: Main server handling API requests and agent orchestration.
+- `agents/`: Contains the agent definitions (planner, scout, etc.).
+  - `views/`: Contains UI rendering logic (like `search.py` for A2UI grids).
+- `ui/`: Frontend assets.
+  - `index.html`: Main application structure.
+  - `style.css`: Premium styling and animations.
+  - `app.js`: Core frontend logic and A2UI rendering engine.
