@@ -7,6 +7,9 @@
     --glass-border: rgba(255, 255, 255, 0.5);
     --shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.08);
 }
+* {
+    box-sizing: border-box;
+}
 
 body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -26,12 +29,12 @@ body {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--glass-border);
-    border-radius: 28px;
-    padding: 2.5rem;
-    width: 95%;
-    max-width: 1200px;
-    height: 85vh;
-    box-shadow: var(--shadow);
+    border-radius: 0;
+    padding: 1.5rem;
+    width: 100vw;
+    max-width: 100vw;
+    height: 100vh;
+    box-shadow: none;
     display: flex;
     flex-direction: row;
     gap: 1.5rem;
@@ -270,6 +273,17 @@ input[type="text"]:focus {
     margin-top: 0.5rem;
 }
 
+.proposed-plan-list {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 1.2rem;
+    margin-top: 0.5rem;
+}
+
+.proposed-plan-list .scenario-card:first-child {
+    grid-column: 1 / -1;
+}
+
 .product-card {
     background: #ffffff;
     border-radius: 16px;
@@ -279,6 +293,26 @@ input[type="text"]:focus {
     display: flex;
     flex-direction: column;
     border: 1px solid rgba(0,0,0,0.03);
+}
+
+.product-card.horizontal-card {
+    flex-direction: row !important;
+    align-items: center;
+    grid-column: 1 / -1;
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.horizontal-card .product-img-wrapper {
+    width: 100px !important;
+    height: 100px !important;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.horizontal-card .product-info {
+    flex-grow: 1;
+    padding: 0 !important;
 }
 
 .product-card:hover {
@@ -510,25 +544,53 @@ input[type="text"]:focus {
 
 .scenario-list {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    flex-direction: row;
+    gap: 1rem;
     width: 100%;
     margin-top: 0.5rem;
+    justify-content: center;
+}
+
+.scenario-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+    margin-bottom: 0.75rem;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    flex: 1;
+}
+
+.scenario-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.15);
+}
+
+.scenario-img {
+    width: 100%;
+    border-radius: 12px;
+    object-fit: cover;
+    aspect-ratio: 1 / 1;
 }
 
 .scenario-btn {
     width: 100%;
     padding: 0.75rem 1.5rem;
-    border-radius: 14px;
+    border-radius: 12px;
     border: none;
-    background: var(--primary-color);
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
     color: white;
     font-weight: 600;
     font-size: 0.95rem;
     cursor: pointer;
     text-align: center;
-    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.25);
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
     margin-bottom: 0.75rem;
 }
 

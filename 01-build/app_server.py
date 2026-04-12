@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import FastAPI, Form, File, UploadFile, Request
 from fastapi.staticfiles import StaticFiles
 import stripe
+import re
 
 # Helper to load .env manually since python-dotenv might not be available
 def load_env():
@@ -32,6 +33,105 @@ from google.genai.types import Content as GenAIContent, Part as GenAIPart
 from agents.agent import root_agent
 from agents.views.search import render_search_ui
 
+def render_cart_ui(cart, payment_link=None):
+    cards = []
+    
+    # Add a header card
+    cards.append({
+        "Card": {
+            "children": [
+                {
+                    "Text": {
+                        "text": "Your Order" if not payment_link else "Order Summary",
+                        "style": "title"
+                    }
+                }
+            ]
+        }
+    })
+    
+    # Add a card for each item
+    for item in cart:
+        img_url = item.get("img_url", "https://via.placeholder.com/300x200?text=No+Image")
+        cards.append({
+            "Card": {
+                "children": [
+                    {
+                        "Image": {
+                            "src": img_url,
+                            "alt": item["name"]
+                        }
+                    },
+                    {
+                        "Text": {
+                            "text": item["name"],
+                            "style": "title"
+                        }
+                    },
+                    {
+                        "Text": {
+                            "text": f"${item['price']:.2f}",
+                            "style": "subtitle"
+                        }
+                    }
+                ]
+            }
+        })
+        
+    # Add a total card
+    total = sum(item['price'] for item in cart)
+    
+    total_children = [
+        {
+            "Text": {
+                "text": f"Total: ${total:.2f}",
+                "style": "title"
+            }
+        }
+    ]
+    
+    if payment_link:
+        total_children.append({
+            "Text": {
+                "text": f'<a href="{payment_link}" class="stripe-pay-btn" style="display: inline-block; background: #6772e5; color: white; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; text-align: center; width: 100%; box-sizing: border-box; margin-top: 0.5rem; font-weight: bold;">Pay Now with Stripe 💳</a>',
+                "style": "body"
+            }
+        })
+    else:
+        # Add Checkout button
+        total_children.append({
+            "Button": {
+                "child": {
+                    "Text": {
+                        "text": "Go to Checkout 🛒"
+                    }
+                },
+                "action": {
+                    "command": "send_message",
+                    "params": {
+                        "message": "Checkout"
+                    }
+                }
+            }
+        })
+        
+    cards.append({
+        "Card": {
+            "children": total_children
+        }
+    })
+    
+    return {
+        "beginRendering": {
+            "surfaceId": "cart-summary",
+            "content": {
+                "Column": {
+                    "children": cards
+                }
+            }
+        }
+    }
+
 app = FastAPI(title="Shopping Squad UI")
 
 # Persistent services for run isolation
@@ -50,6 +150,7 @@ async def health_check():
 
 @app.post("/api/chat")
 async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] = File(None), persona: Optional[str] = Form(None), session_id: Optional[str] = Form(None)):
+    print(f"DEBUG: /api/chat received prompt='{prompt}', persona='{persona}', session_id='{session_id}'")
     if not session_id:
         session_id = "demo_session_1"
     user_id = "demo_user_1"
@@ -72,7 +173,7 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
     new_message = GenAIContent(role="user", parts=parts)
     
     # Intercept scenario requests
-    if prompt in ["Show scenarios", "Show my scenarios", "Here are some scenarios"]:
+    if prompt and prompt.lower().strip() in ["show scenarios", "show my scenarios", "here are some scenarios", "what can i do", "what can i do?", "show scenarios?", "help"]:
         if persona == "adam":
             return {
                 "status": "success",
@@ -80,35 +181,80 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
                     "beginRendering": {
                         "surfaceId": "scenario-options",
                         "content": {
-                            "Column": {
+                            "Row": {
                                 "children": [
                                     {
-                                        "Button": {
-                                            "child": {"Text": {"text": "Solo Yosemite Trip ($600)"}},
-                                            "action": {
-                                                "command": "send_message",
-                                                "params": {"message": "Solo backpacking trip to Yosemite. Budget: $600"}
-                                            }
+                                        "Card": {
+                                            "children": [
+                                                {
+                                                    "Image": {
+                                                        "src": "/images/gemini_backpack.png",
+                                                        "alt": "Reference Backpack"
+                                                    }
+                                                },
+                                                {
+                                                    "Button": {
+                                                        "child": {"Text": {"text": "I want something similar ($150)"}},
+                                                        "action": {
+                                                            "command": "send_message",
+                                                            "params": {
+                                                                "message": "![backpack](/images/gemini_backpack.png) <!-- Use find_similar_items with item_id m54421969413 and filter on price less than $150 -->",
+                                                                "display_message": "I am looking for a backpack similar to this image"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
                                         }
                                     },
                                     {
-                                        "Button": {
-                                            "child": {"Text": {"text": "Daily Bicycle Commute ($300)"}},
-                                            "action": {
-                                                "command": "send_message",
-                                                "params": {"message": "Upgrade daily bicycle commute gear. Budget: $300"}
-                                            }
+                                        "Card": {
+                                            "children": [
+                                                {
+                                                    "Image": {
+                                                        "src": "/images/commute_bike.png",
+                                                        "alt": "Commuter Bike"
+                                                    }
+                                                },
+                                                {
+                                                    "Button": {
+                                                        "child": {"Text": {"text": "Bicycle Gear ($300)"}},
+                                                        "action": {
+                                                            "command": "send_message",
+                                                            "params": {
+                                                                "message": "Create a plan for mens bicycle accessories. Budget: $300",
+                                                                "display_message": "Bicycle Gear ($300)"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
                                         }
                                     },
                                     {
-                                        "Button": {
-                                            "child": {"Text": {"text": "Expedition Prep ($1200)"}},
-                                            "action": {
-                                                "command": "send_message",
-                                                "params": {"message": "Durable gear for a hiking expedition. Budget: $1200"}
-                                            }
+                                        "Card": {
+                                            "children": [
+                                                {
+                                                    "Image": {
+                                                        "src": "/images/expedition_gear.png",
+                                                        "alt": "Expedition Gear"
+                                                    }
+                                                },
+                                                {
+                                                    "Button": {
+                                                        "child": {"Text": {"text": "Expedition Prep ($1200)"}},
+                                                        "action": {
+                                                            "command": "send_message",
+                                                            "params": {
+                                                                "message": "Durable gear for a hiking expedition. Budget: $1200",
+                                                                "display_message": "Expedition Prep ($1200)"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
                                         }
-                                    }
+                                    },
                                 ]
                             }
                         }
@@ -185,12 +331,27 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
                                         }
                                     },
                                     {
-                                        "Button": {
-                                            "child": {"Text": {"text": "Weekend Getaway ($400)"}},
-                                            "action": {
-                                                "command": "send_message",
-                                                "params": {"message": "Casual chic outfits for a weekend getaway. Budget: $400"}
-                                            }
+                                        "Card": {
+                                            "children": [
+                                                {
+                                                    "Image": {
+                                                        "src": "/images/leather_journal.avif",
+                                                        "alt": "Leather Journal"
+                                                    }
+                                                },
+                                                {
+                                                    "Button": {
+                                                        "child": {"Text": {"text": "I want something similar with budget of $50"}},
+                                                        "action": {
+                                                            "command": "send_message",
+                                                            "params": {
+                                                                "message": "![journal](/images/leather_journal.avif) <!-- Use find_similar_items with item_id m85493857344 and filter on price less than $50 -->",
+                                                                "display_message": "I want something similar with budget of $50"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
                                         }
                                     }
                                 ]
@@ -246,6 +407,12 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
     found_options = []
     if success_triggered:
         found_options = session.state.get("found_options", [])
+        if found_options:
+            print("\n--- 🔍 SEARCH RESULTS IDS 🔍 ---")
+            for group in found_options:
+                for item in group.get("options", []):
+                    print(f"ID: {item.get('id')} | Name: {item.get('name')}")
+            print("---------------------------------\n")
 
     response_data = {"status": "success"}
     
@@ -254,11 +421,27 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
     if found_options:
         # Use A2UI view to render products
         response_data["a2ui_data"] = render_search_ui(found_options, persona)
-    elif proposed_plan_ui:
+    elif proposed_plan_ui and session.state.get("awaiting_approval"):
         response_data["a2ui_data"] = proposed_plan_ui
+    elif "stripe.com" in reply_text:
+        # Render checkout UI
+        cart = session.state.get("agent_cart", [])
+        match = re.search(r'(https://[a-zA-Z0-9.-]*stripe\.com/[^\s]+)', reply_text)
+        payment_link = match.group(1) if match else ""
+        
+        if cart and payment_link:
+            response_data["a2ui_data"] = render_cart_ui(cart, payment_link)
+            # Replace reply_text with a cleaner message
+            reply_text = "Your order is ready! Here is a summary and payment link:"
 
     if reply_text and not found_options:
-        response_data["reply"] = reply_text
+        # Clean up blank lines
+        reply_text = reply_text.replace('\n\n', '\n')
+        
+        # Cart summary rendering on every add has been removed to avoid clutter.
+        # It will now only be shown during final checkout.
+                    
+        response_data["reply"] = reply_text.strip()
     elif not found_options:
         response_data["reply"] = ""
 
@@ -318,6 +501,8 @@ async def create_checkout_session(items: List[CartItem], request: Request):
             
         origin = request.headers.get("origin") or "http://localhost:8080"
         
+        print(f"DEBUG: Creating Stripe session with line_items: {line_items}")
+        
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             line_items=line_items,
@@ -329,6 +514,16 @@ async def create_checkout_session(items: List[CartItem], request: Request):
     except Exception as e:
         print(f"Error creating stripe session: {e}")
         return {"error": str(e)}, 400
+
+@app.get("/api/clear-cart")
+async def clear_cart():
+    from agents.agent import GLOBAL_CART
+    GLOBAL_CART.clear()
+    print("DEBUG: Cart cleared on server.")
+    return {"status": "success", "message": "Cart cleared"}
+
+# Mount images directory
+app.mount("/images", StaticFiles(directory="images"), name="images")
 
 # Mount static files at root (Mount this LAST)
 app.mount("/", StaticFiles(directory="ui", html=True), name="ui")

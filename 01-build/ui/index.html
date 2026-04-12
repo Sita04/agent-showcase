@@ -29,7 +29,7 @@
                 </div>
                 <div class="header-right">
                     <div class="status-badge" id="bot-status">⚡ Online</div>
-                    <div class="cart-btn" id="cart-btn">🛒 <span id="cart-count">0</span></div>
+
                 </div>
             </header>
 
@@ -39,6 +39,8 @@
 
             <div class="controls">
                 <div class="input-wrapper">
+                    <input type="file" id="image-upload" style="display: none;">
+                    <label for="image-upload" class="upload-btn">📎</label>
                     <input type="text" id="user-input" placeholder="Type your request here...">
                     <button class="send-btn" id="send-btn">Send</button>
                 </div>
@@ -46,19 +48,7 @@
         </div>
     </div>
 
-    <div class="cart-sidebar" id="cart-sidebar">
-        <div class="cart-header">
-            <h2>Your Cart</h2>
-            <button class="close-btn" id="close-cart-btn">✕</button>
-        </div>
-        <div class="cart-items" id="cart-items">
-            <div class="empty-cart-msg">Your cart is empty</div>
-        </div>
-        <div class="cart-footer">
-            <div class="total-price">Total: $<span id="cart-total">0.00</span></div>
-            <button class="checkout-btn">Proceed to Checkout</button>
-        </div>
-    </div>
+
 
     <div id="confirm-modal" class="modal-overlay">
         <div class="modal-content">

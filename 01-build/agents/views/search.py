@@ -9,20 +9,6 @@ def render_search_ui(categories: list, persona: str = None) -> dict:
         category_name = group.get("category", "Unknown Category")
         products = group.get("options", [])
         
-        # Add a category header card (no image, no button)
-        cards.append({
-            "Card": {
-                "children": [
-                    {
-                        "Text": {
-                            "text": category_name,
-                            "style": "title"
-                        }
-                    }
-                ]
-            }
-        })
-        
         for item in products:
             sku = item.get("id", "N/A")
             name = item.get("name", "Unknown Product")
@@ -55,11 +41,11 @@ def render_search_ui(categories: list, persona: str = None) -> dict:
                             "Button": {
                                 "child": {
                                     "Text": {
-                                        "text": "Add to Cart"
+                                        "text": "Select"
                                     }
                                 },
                                 "action": {
-                                    "name": "add_to_cart_click",
+                                    "name": "select_item_click",
                                     "context": [
                                         { "key": "sku", "value": { "literalString": sku } }
                                     ]
@@ -81,39 +67,7 @@ def render_search_ui(categories: list, persona: str = None) -> dict:
         }
     ]
     
-    scenarios = []
-    if persona == "adam":
-        scenarios = [
-            ("Solo Yosemite Trip ($600)", "Solo backpacking trip to Yosemite. Budget: $600"),
-            ("Daily Bicycle Commute ($300)", "Upgrade daily bicycle commute gear. Budget: $300"),
-            ("Expedition Prep ($1200)", "Durable gear for a hiking expedition. Budget: $1200")
-        ]
-    elif persona == "lucy":
-        scenarios = [
-            ("Music Festival Tech ($250)", "Aesthetic tech for a music festival. Budget: $250"),
-            ("Art Studio Supplies ($150)", "Supplies for my art studio. Budget: $150"),
-            ("Aesthetic Tech ($200)", "Desk accessories and tech. Budget: $200")
-        ]
-    elif persona == "elena":
-        scenarios = [
-            ("Business Casual Wardrobe ($800)", "Business casual capsule wardrobe. Budget: $800"),
-            ("Corporate Gala ($300)", "Elegant dress for a corporate gala. Budget: $300"),
-            ("Weekend Getaway ($400)", "Casual chic outfits for a weekend getaway. Budget: $400")
-        ]
-        
-    for text, message in scenarios:
-        follow_up_children.append({
-            "Button": {
-                "child": { "Text": { "text": text } },
-                "action": { "command": "send_message", "params": { "message": message } }
-            }
-        })
-        
-    cards.append({
-        "Card": {
-            "children": follow_up_children
-        }
-    })
+
 
     envelope = {
         "beginRendering": {
