@@ -107,14 +107,14 @@ function handleEvent(event) {
     const nodes = {
         'START': document.getElementById('node-start'),
         'control_room_orchestrator': document.getElementById('node-orchestrator'),
+        'replanner': document.getElementById('node-replanner'),
         'COMPLETED': document.getElementById('node-completed')
     };
 
     function setActiveNode(nodeId) {
         Object.values(nodes).forEach(n => n && n.classList.remove('active'));
         if (nodeId.startsWith('replanner_agent')) {
-            const replannerNode = document.getElementById('node-replanner');
-            if (replannerNode) replannerNode.classList.add('active');
+            if (nodes['replanner']) nodes['replanner'].classList.add('active');
         } else if (nodes[nodeId]) {
             nodes[nodeId].classList.add('active');
         }
@@ -126,11 +126,7 @@ function handleEvent(event) {
         appendStatusLine(event.text, role, styleType);
 
         if (event.name === 'replanning') {
-            const replannerNode = document.getElementById('node-replanner');
-            if (replannerNode) {
-                Object.values(nodes).forEach(n => n && n.classList.remove('active'));
-                replannerNode.classList.add('active');
-            }
+            setActiveNode('replanner');
         }
     } else if (event.type === 'adk_event') {
         if (event.node_name && event.node_name !== 'N/A') setActiveNode(event.node_name);
