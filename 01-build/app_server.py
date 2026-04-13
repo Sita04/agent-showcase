@@ -163,7 +163,10 @@ async def health_check():
     return {"status": "ok", "message": "FastAPI is running"}
 
 @app.post("/api/chat")
-async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] = File(None), persona: Optional[str] = Form(None), session_id: Optional[str] = Form(None)):
+async def chat(request: Request, prompt: Optional[str] = Form(None), image: Optional[UploadFile] = File(None), persona: Optional[str] = Form(None), session_id: Optional[str] = Form(None)):
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    origin = request.headers.get("origin") or f"{scheme}://{request.url.netloc}"
+    os.environ["APP_URL"] = origin
     print(f"DEBUG: /api/chat received prompt='{prompt}', persona='{persona}', session_id='{session_id}'")
     if not session_id:
         session_id = "demo_session_1"
@@ -591,7 +594,8 @@ async def create_checkout_session(items: List[CartItem], request: Request):
                 "quantity": data["quantity"],
             })
             
-        origin = request.headers.get("origin") or "http://localhost:8080"
+        scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+        origin = request.headers.get("origin") or f"{scheme}://{request.url.netloc}"
         
         print(f"DEBUG: Creating Stripe session with line_items: {line_items}")
         

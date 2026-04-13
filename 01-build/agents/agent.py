@@ -142,7 +142,7 @@ async def shopping_workflow(ctx: Context, node_input):
                 })
                 
             try:
-                origin = "http://localhost:8080"
+                origin = os.environ.get("APP_URL", "http://localhost:8080")
                 session = stripe.checkout.Session.create(
                     payment_method_types=["card"],
                     line_items=line_items,
