@@ -70,3 +70,8 @@ drivectl-mcp.log
 # uv
 .python-version
 uv.lock
+
+# Local tracking files
+**/DEVLOG.md
+**/TDD.md
+*.log
