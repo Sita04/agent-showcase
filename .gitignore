@@ -73,5 +73,7 @@ uv.lock
 
 # Local tracking files
 **/DEVLOG.md
+DEVLOG.md
 **/TDD.md
+TDD.md
 *.log
