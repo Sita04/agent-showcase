@@ -97,7 +97,7 @@ The **Planning Agent** requests a discontinued item (e.g., "XR-7000 Quantum Holo
 
 ## Getting Started
 
-Try the live demo at: **https://scale-control-room-nhhfh7g7iq-uc.a.run.app**
+Try the live demo at: **https://scale-control-room-761793285222.us-central1.run.app**
 
 | CUJ | Prompt | Expected Outcome |
 | --- | ------ | ---------------- |
@@ -258,21 +258,21 @@ Agent Engine instances scale to zero when idle. Cold starts take 3-5 minutes, so
 uv run python scripts/warmup_agent_engines.py
 
 # Step 2: Warm up Cloud Run services
-curl https://scale-control-room-nhhfh7g7iq-uc.a.run.app/api/health
-curl https://scale-planner-a2a-nhhfh7g7iq-uc.a.run.app/.well-known/agent.json
+curl https://scale-control-room-761793285222.us-central1.run.app/api/health
+curl https://scale-planner-a2a-761793285222.us-central1.run.app/.well-known/agent.json
 ```
 
 > **Important:** Always warm up Agent Engine after any redeployment. Run prompts one at a time -- the in-memory dashboard queue supports one session.
 
 ### Live Demo Endpoints
 
-* **Control Room UI:** `https://scale-control-room-nhhfh7g7iq-uc.a.run.app`
-* **Planner A2A bridge:** `https://scale-planner-a2a-nhhfh7g7iq-uc.a.run.app`
+* **Control Room UI:** `https://scale-control-room-761793285222.us-central1.run.app`
+* **Planner A2A bridge:** `https://scale-planner-a2a-761793285222.us-central1.run.app`
 
 Smoke checks:
 ```bash
-curl https://scale-control-room-nhhfh7g7iq-uc.a.run.app/api/health
-curl https://scale-planner-a2a-nhhfh7g7iq-uc.a.run.app/.well-known/agent.json
+curl https://scale-control-room-761793285222.us-central1.run.app/api/health
+curl https://scale-planner-a2a-761793285222.us-central1.run.app/.well-known/agent.json
 ```
 
 ---
@@ -389,8 +389,8 @@ The live CUJ 2 security boundary uses a custom least-privilege planner role plus
 
 The Cloud Run path is live in `gcp-samples-ic0`:
 
-* Control Room: `https://scale-control-room-nhhfh7g7iq-uc.a.run.app`
-* Planner A2A bridge: `https://scale-planner-a2a-nhhfh7g7iq-uc.a.run.app`
+* Control Room: `https://scale-control-room-761793285222.us-central1.run.app`
+* Planner A2A bridge: `https://scale-planner-a2a-761793285222.us-central1.run.app`
 
 Validated live behavior:
 
