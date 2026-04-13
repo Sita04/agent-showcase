@@ -62,7 +62,9 @@ class PlanningAgent:
         self._graph = build_planner_graph(crew_engine=crew_engine)
 
     def query(self, *, input: str) -> str:
-        """Run the planner graph synchronously.
+        """Run the planner graph.
+
+        The graph nodes are async, so we use ainvoke via asyncio.run().
 
         Args:
             input: The objective string (e.g., an inventory alert).
@@ -70,10 +72,11 @@ class PlanningAgent:
         Returns:
             The final report from the planner.
         """
+        import asyncio
         try:
             from .state import PlanState
         except ImportError:
             from state import PlanState
         initial_state: PlanState = {"objective": input}
-        final_state = self._graph.invoke(initial_state)
+        final_state = asyncio.run(self._graph.ainvoke(initial_state))
         return final_state.get("final_report", "No report generated.")
