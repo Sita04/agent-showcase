@@ -1,3 +1,17 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import uvicorn
 from typing import Optional
@@ -242,12 +256,12 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
                                                 },
                                                 {
                                                     "Button": {
-                                                        "child": {"Text": {"text": "Expedition Prep ($1200)"}},
+                                                        "child": {"Text": {"text": "Expedition Prep ($500)"}},
                                                         "action": {
                                                             "command": "send_message",
                                                             "params": {
-                                                                "message": "Durable gear for a hiking expedition. Budget: $1200",
-                                                                "display_message": "Expedition Prep ($1200)"
+                                                                "message": "Durable gear for a hiking expedition. Budget: $500",
+                                                                "display_message": "Expedition Prep ($500)"
                                                             }
                                                         }
                                                     }
@@ -271,30 +285,75 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
                             "Column": {
                                 "children": [
                                     {
-                                        "Button": {
-                                            "child": {"Text": {"text": "Music Festival Tech ($250)"}},
-                                            "action": {
-                                                "command": "send_message",
-                                                "params": {"message": "Aesthetic tech for a music festival. Budget: $250"}
-                                            }
+                                        "Card": {
+                                            "children": [
+                                                {
+                                                    "Image": {
+                                                        "src": "/images/necklace.avif",
+                                                        "alt": "Music Festival Necklace"
+                                                    }
+                                                },
+                                                {
+                                                    "Button": {
+                                                        "child": {"Text": {"text": "I want something similar ($100)"}},
+                                                        "action": {
+                                                            "command": "send_message",
+                                                            "params": {
+                                                                "message": "![necklace](/images/necklace.avif) <!-- Use find_similar_items with item_id m94504397053 and filter on price less than $100 -->",
+                                                                "display_message": "I am looking for a necklace similar to this image"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
                                         }
                                     },
                                     {
-                                        "Button": {
-                                            "child": {"Text": {"text": "Art Studio Supplies ($150)"}},
-                                            "action": {
-                                                "command": "send_message",
-                                                "params": {"message": "Supplies for my art studio. Budget: $150"}
-                                            }
+                                        "Card": {
+                                            "children": [
+                                                {
+                                                    "Image": {
+                                                        "src": "/images/art_supplies.png",
+                                                        "alt": "Art Studio Supplies"
+                                                    }
+                                                },
+                                                {
+                                                    "Button": {
+                                                        "child": {"Text": {"text": "Art Studio Supplies ($150)"}},
+                                                        "action": {
+                                                            "command": "send_message",
+                                                            "params": {
+                                                                "message": "Supplies for my art studio. Budget: $150",
+                                                                "display_message": "Art Studio Supplies ($150)"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
                                         }
                                     },
                                     {
-                                        "Button": {
-                                            "child": {"Text": {"text": "Aesthetic Tech ($200)"}},
-                                            "action": {
-                                                "command": "send_message",
-                                                "params": {"message": "Desk accessories and tech. Budget: $200"}
-                                            }
+                                        "Card": {
+                                            "children": [
+                                                {
+                                                    "Image": {
+                                                        "src": "/images/aesthetic_tech.png",
+                                                        "alt": "Aesthetic Tech"
+                                                    }
+                                                },
+                                                {
+                                                    "Button": {
+                                                        "child": {"Text": {"text": "Aesthetic Tech ($200)"}},
+                                                        "action": {
+                                                            "command": "send_message",
+                                                            "params": {
+                                                                "message": "Desk accessories and tech. Budget: $200",
+                                                                "display_message": "Aesthetic Tech ($200)"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
                                         }
                                     }
                                 ]
@@ -313,21 +372,51 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
                             "Column": {
                                 "children": [
                                     {
-                                        "Button": {
-                                            "child": {"Text": {"text": "Business Casual Wardrobe ($800)"}},
-                                            "action": {
-                                                "command": "send_message",
-                                                "params": {"message": "Business casual capsule wardrobe. Budget: $800"}
-                                            }
+                                        "Card": {
+                                            "children": [
+                                                {
+                                                    "Image": {
+                                                        "src": "/images/business_casual.png",
+                                                        "alt": "Business Casual Wardrobe"
+                                                    }
+                                                },
+                                                {
+                                                    "Button": {
+                                                        "child": {"Text": {"text": "Business Casual Wardrobe ($800)"}},
+                                                        "action": {
+                                                            "command": "send_message",
+                                                            "params": {
+                                                                "message": "Business casual capsule wardrobe. Budget: $800",
+                                                                "display_message": "Business Casual Wardrobe ($800)"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
                                         }
                                     },
                                     {
-                                        "Button": {
-                                            "child": {"Text": {"text": "Corporate Gala ($300)"}},
-                                            "action": {
-                                                "command": "send_message",
-                                                "params": {"message": "Elegant dress for a corporate gala. Budget: $300"}
-                                            }
+                                        "Card": {
+                                            "children": [
+                                                {
+                                                    "Image": {
+                                                        "src": "/images/corporate_gala.png",
+                                                        "alt": "Corporate Gala"
+                                                    }
+                                                },
+                                                {
+                                                    "Button": {
+                                                        "child": {"Text": {"text": "Corporate Gala ($300)"}},
+                                                        "action": {
+                                                            "command": "send_message",
+                                                            "params": {
+                                                                "message": "Elegant dress for a corporate gala. Budget: $300",
+                                                                "display_message": "Corporate Gala ($300)"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
                                         }
                                     },
                                     {
@@ -341,12 +430,12 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
                                                 },
                                                 {
                                                     "Button": {
-                                                        "child": {"Text": {"text": "I want something similar with budget of $50"}},
+                                                        "child": {"Text": {"text": "I want something similar ($50)"}},
                                                         "action": {
                                                             "command": "send_message",
                                                             "params": {
                                                                 "message": "![journal](/images/leather_journal.avif) <!-- Use find_similar_items with item_id m85493857344 and filter on price less than $50 -->",
-                                                                "display_message": "I want something similar with budget of $50"
+                                                                "display_message": "I am looking for a vintage leather journal similar to this image"
                                                             }
                                                         }
                                                     }
@@ -386,7 +475,7 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
             
         if node_name.startswith("sys_speaker_") and isinstance(output_data, str):
             reply_text += output_data
-        elif event.content:
+        elif event.content and not node_name.startswith("planner_"):
             # Fallback for other text events
             for p in event.content.parts:
                 txt = p.get('text') if isinstance(p, dict) else getattr(p, 'text', '')
@@ -437,6 +526,9 @@ async def chat(prompt: Optional[str] = Form(None), image: Optional[UploadFile] =
     if reply_text and not found_options:
         # Clean up blank lines
         reply_text = reply_text.replace('\n\n', '\n')
+        
+        # Remove system speaker identification leak
+        reply_text = re.sub(r'You are an agent\. Your internal name is "[^"]*"\.', '', reply_text)
         
         # Cart summary rendering on every add has been removed to avoid clutter.
         # It will now only be shown during final checkout.

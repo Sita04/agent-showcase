@@ -1,3 +1,17 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Main Orchestrator for the Shopping Squad.
 Coordinates the Planner, parallel Scouts, and Evaluator.
@@ -108,11 +122,6 @@ async def shopping_workflow(ctx: Context, node_input):
                 return "Removed from your order."
             return "Item not found in your order."
             
-        def finalize_order():
-            """Call this after you have generated the payment link and are done with the session."""
-            ctx.state["awaiting_selection"] = False
-            return "Order finalized."
-            
         def create_checkout_link() -> str:
             """Creates a real Stripe checkout link for the items in the cart. Call this when the user wants to checkout."""
             global GLOBAL_CART
@@ -141,6 +150,7 @@ async def shopping_workflow(ctx: Context, node_input):
                     success_url=f"{origin}/?success=true",
                     cancel_url=f"{origin}/?canceled=true",
                 )
+                ctx.state["awaiting_selection"] = False # Finalize the session
                 return f"Here is your payment link: {session.url}"
             except Exception as e:
                 return f"Error creating payment link: {str(e)}"
@@ -162,20 +172,19 @@ async def shopping_workflow(ctx: Context, node_input):
             INSTRUCTIONS:
             1. If the user wants to ADD an item, call `add_to_agent_cart` (be sure to pass the `img_url` from the options list if available!).
             2. If the user wants to REMOVE an item, call `remove_from_agent_cart`.
-            3. If the user wants to CHECKOUT, call `create_checkout_link` to generate a real Stripe payment link for the items in the cart. Then call `finalize_order`!
+            3. If the user wants to CHECKOUT (or says 'That is it' or 'Checkout'), you MUST call `create_checkout_link` to generate a real Stripe payment link for the items in the cart. You MUST include the payment link in your response!
             4. If they ask what's in their cart, list the items in the current cart.
             
             OUTPUT INSTRUCTIONS:
             Create an extremely friendly response in Markdown!
             - If adding an item, confirm it was added.
             - If removing an item, confirm it was removed.
-            - If checking out, include the payment link returned by `create_checkout_link` in your response!
+            - If checking out, you MUST include the payment link returned by `create_checkout_link` in your response!
             - Do NOT list the available options again. Just confirm the action and ask what else they would like to do.
             """,
             tools=[
                 add_to_agent_cart,
                 remove_from_agent_cart,
-                finalize_order,
                 create_checkout_link
             ]
         )

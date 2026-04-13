@@ -1,7 +1,7 @@
 [project]
 name = "01-build"
 version = "0.1.0"
-description = "Add your description here"
+description = "Build Shopping Agent"
 readme = "README.md"
 authors = [
     { name = "Laxmi Harikumar", email = "laxmih@google.com" }

@@ -52,6 +52,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const p = personas[val] || personas.none;
                 personaDetails.innerHTML = typeof marked !== 'undefined' ? marked.parse(p.details) : p.details;
                 
+                // Update active class on cards
+                const personaCards = document.querySelectorAll('.persona-card');
+                personaCards.forEach(c => {
+                    const isActive = c.dataset.value === val;
+                    c.classList.toggle('active', isActive);
+                    if (isActive && personaDetails) {
+                        c.appendChild(personaDetails);
+                    }
+                });
+                
 
                 
                 // Clear chat and restore welcome message
@@ -78,11 +88,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         const p = personas[val] || personas.none;
         personaDetails.innerHTML = typeof marked !== 'undefined' ? marked.parse(p.details) : p.details;
         
+        const activeCard = document.querySelector(`.persona-card[data-value="${val}"]`);
+        if (activeCard && personaDetails) {
+            activeCard.appendChild(personaDetails);
+        }
+        
         if (val === 'adam') {
             userInput.value = "Show my scenarios";
             sendMessage();
         }
     }
+
+    // Handle persona card clicks
+    const personaCards = document.querySelectorAll('.persona-card');
+    personaCards.forEach(card => {
+        card.addEventListener('click', () => {
+            const val = card.dataset.value;
+            if (personaSelect && val !== personaSelect.value) {
+                personaSelect.value = val;
+                personaSelect.dispatchEvent(new Event('change'));
+            }
+        });
+    });
 
     if (personaDetails) {
         personaDetails.addEventListener('click', (e) => {
@@ -443,14 +470,27 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Remove typing indicator
             loadingMsg.remove();
 
-            if (data.reply) {
-                appendMessage(data.reply, 'agent');
-            }
+            const surfaceId = data.a2ui_data?.beginRendering?.surfaceId;
 
-            if (data.a2ui_data) {
-                renderA2UI(data.a2ui_data);
-            } else if (data.found_options && data.found_options.length > 0) {
-                appendProductCards(data.found_options);
+            if (surfaceId === 'cart-summary') {
+                // For Order Summary, show reply ABOVE
+                if (data.reply) {
+                    appendMessage(data.reply, 'agent');
+                }
+                if (data.a2ui_data) {
+                    renderA2UI(data.a2ui_data);
+                }
+            } else {
+                // Default behavior (including planning): show reply BELOW
+                if (data.a2ui_data) {
+                    renderA2UI(data.a2ui_data);
+                } else if (data.found_options && data.found_options.length > 0) {
+                    appendProductCards(data.found_options);
+                }
+
+                if (data.reply) {
+                    appendMessage(data.reply, 'agent');
+                }
             }
 
             if (data.status === "Awaiting human approval" || data.status === "Awaiting human selection") {
