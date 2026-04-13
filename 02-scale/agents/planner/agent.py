@@ -64,7 +64,8 @@ class PlanningAgent:
     def query(self, *, input: str) -> str:
         """Run the planner graph.
 
-        The graph nodes are async, so we use ainvoke via asyncio.run().
+        The graph nodes are async. Agent Engine runs inside an existing
+        event loop, so we use nest_asyncio to allow nested asyncio.run().
 
         Args:
             input: The objective string (e.g., an inventory alert).
@@ -73,6 +74,8 @@ class PlanningAgent:
             The final report from the planner.
         """
         import asyncio
+        import nest_asyncio
+        nest_asyncio.apply()
         try:
             from .state import PlanState
         except ImportError:

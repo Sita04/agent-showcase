@@ -207,6 +207,7 @@ def deploy_planning_agent(args: argparse.Namespace) -> str:
             "google-cloud-aiplatform>=1.144",
             "google-cloud-resource-manager>=1.14.2",
             "requests",
+            "nest_asyncio",
         ],
         "extra_packages": [
             "agents",
