@@ -130,14 +130,16 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
                 # Use stream to catch intermediate artifacts from the A2A server
-                await emit_status("system", "Sending the procurement objective via A2A protocol...")
+                obj_preview = current_objective[:80] + ("..." if len(current_objective) > 80 else "")
+                await emit_status("a2a", f"→ Planner: **message/send** \"{obj_preview}\"", role="a2a")
                 async with client.stream("POST", f"{A2A_SERVER_URL}/", json=json_rpc_payload) as response:
                     if response.status_code != 200:
+                        await emit_status("a2a", f"← Planner: **HTTP {response.status_code}**", role="a2a")
                         final_report = f"A2A Server error: {response.status_code}"
                         is_success = False
                         should_retry = True
                     else:
-                        await emit_status("system", "Planning Agent connected. Waiting for the plan...")
+                        await emit_status("a2a", "← Planner: **connection established**, streaming response...", role="a2a")
                         async for line in response.aiter_lines():
                             if not line: continue
                             try:
@@ -155,6 +157,9 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                                 
                                 # Handle intermediate notifications (artifacts)
                                 if data.get("method") == "task/update":
+                                    task_state = data.get("params", {}).get("status", {}).get("state", "")
+                                    if task_state:
+                                        await emit_status("a2a", f"← Planner: **task/update** state={task_state}", role="a2a")
                                     artifacts = data.get("params", {}).get("artifacts", [])
                                     for art in artifacts:
                                         # Skip the final report artifact — it will be
@@ -170,6 +175,8 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                                 
                                 # Handle the final result
                                 if "result" in data:
+                                    task_status = data["result"].get("status", {}).get("state", "completed")
+                                    await emit_status("a2a", f"← Planner: **result** state={task_status}", role="a2a")
                                     await emit_status("system", "Received the procurement report. Evaluating the outcome...")
                                     task = data["result"]
                                     artifacts = task.get("artifacts", [])

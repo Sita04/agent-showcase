@@ -13,6 +13,7 @@ const ROLE_LABELS = {
     control_room: 'Control Room (ADK)',
     planner: 'Planner (LangGraph)',
     executor: 'Executor (CrewAI)',
+    a2a: 'A2A Protocol',
 };
 
 // Map role to CSS class for the bubble
@@ -20,6 +21,7 @@ const ROLE_STYLES = {
     control_room: 'control-room',
     planner: 'planner',
     executor: 'execution',
+    a2a: 'a2a',
 };
 
 async function sendMessage() {

@@ -100,7 +100,7 @@ This demo showcases a **Multi-Agent System (MAS)** designed to handle complex lo
 * **Runtime:** Google Agent Engine
 * **Planning:** LangGraph (Python)
 * **Execution:** CrewAI (Python)
-* **Interoperability:** Native A2A (Agent-to-Agent) Protocol via JSON-RPC
+* **Interoperability:** A2A (Agent-to-Agent) Protocol via JSON-RPC (Control Room → Planner); Agent Engine SDK (Planner → Executor)
 * **Data Source:** Mercari Product Vector Store (via REST API)
 * **Tooling:** Model Context Protocol (MCP)
 * **Security:** Google Agent Platform Agent Identity
@@ -145,6 +145,8 @@ graph TD
         Router -->|NO| EA[Execution Agent (CrewAI)]
         EA -->|Query/Action| MCP[MCP Client]
     end
+    
+    PA -->|Agent Engine SDK 'query()'| EA
     
     subgraph "External Systems"
         MCP -->|REST API /api/query| VS_API[Vector Search Service]
@@ -637,6 +639,7 @@ Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the cur
 | **Session Management** | Enhanced session management | Partially addressed via ADK 2.0 `InMemoryRunner` & `Session` | Need persistent remote session DB |
 | **Agent Engine** | Core Runtime hosting both layers | Planning Agent deployed to Agent Engine; Execution Crew deployed via patched-wheel source deployment | Control Room uses Cloud Run because ADK 2.0 `Workflow` still cannot deploy to Agent Engine source mode in this project |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
+| **A2A end-to-end** | A2A between all agents | A2A only between Control Room and Planner; Planner calls Execution Crew via Agent Engine SDK `query()` | Wrap Execution Crew in its own A2A server for full A2A interoperability |
 | **Multiple MCP connections** | MCP on both planning and execution sides | MCP only on execution side | Planning Agent has no MCP tools |
 
 ## Agent Engine Platform Features (GA at Next '26)
