@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --prerelease allow
-RUN uv pip install --python /app/.venv/bin/python "a2a-sdk==0.3.25" "a2a-server==0.1.5"
+RUN uv pip install --python /app/.venv/bin/python "a2a-sdk==0.3.25" "a2a-server==0.1.5" "langgraph" "langchain-google-genai>=4.2.1"
 
 COPY . .
 
