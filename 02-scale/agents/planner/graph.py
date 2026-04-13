@@ -432,27 +432,30 @@ def build_planner_graph(crew_engine=None, on_update=None):
 if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
-    
+
     graph = build_planner_graph()
-    
+
     initial_state: PlanState = {
         "objective": "Inventory Alert: Northeast Region is critically low on 'Rare Japanese Anime Figure'. Please order 2 units ASAP. Max budget $50 per unit."
     }
-    
+
     print("==================================================")
     print("🚀 STARTING LANGGRAPH PLANNER")
     print("==================================================")
-    
-    final_state = None
-    for s in graph.stream(initial_state):
-        print(s)
-        final_state = s
-        
-    print("\n==================================================")
-    print("🏁 FINAL OUTPUT FROM DASHBOARD:")
-    print("==================================================")
-    
-    if final_state and "generate_report" in final_state:
-        print(final_state["generate_report"]["final_report"])
-    else:
-        print("Execution did not reach the report generation stage.")
+
+    async def main():
+        final_state = None
+        async for s in graph.astream(initial_state):
+            print(s)
+            final_state = s
+
+        print("\n==================================================")
+        print("🏁 FINAL OUTPUT FROM DASHBOARD:")
+        print("==================================================")
+
+        if final_state and "generate_report" in final_state:
+            print(final_state["generate_report"]["final_report"])
+        else:
+            print("Execution did not reach the report generation stage.")
+
+    asyncio.run(main())

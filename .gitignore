@@ -6,6 +6,7 @@ __pycache__
 .ruff_cache
 .env
 .env*
+!.env.template
 .vscode
 .DS_Store
 samples/
