@@ -220,6 +220,25 @@ h3 {
     font-size: 0.85rem;
 }
 
+.message.agent.planner {
+    border-left: 4px solid var(--accent-color);
+    background: rgba(139, 92, 246, 0.05);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+}
+
+.message.agent.control-room {
+    border-left: 4px solid var(--primary-color);
+    background: rgba(59, 130, 246, 0.05);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+}
+
+.message.agent.result {
+    border-left: 4px solid var(--primary-color);
+    background: rgba(59, 130, 246, 0.05);
+}
+
 /* Role header and status lines */
 .role-header {
     font-weight: 800;
@@ -234,6 +253,14 @@ h3 {
 
 .message.agent.execution .role-header {
     color: #059669;
+}
+
+.message.agent.planner .role-header {
+    color: var(--accent-color);
+}
+
+.message.agent.control-room .role-header {
+    color: var(--primary-color);
 }
 
 .message.agent.replanning .role-header {

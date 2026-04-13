@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.12 - ROLE-GROUPED PROGRESS
-console.log('[DEBUG] Script v1.12 starting load...');
+// Scale Agents Dashboard Logic v1.13 - COLORED ROLE BUBBLES
+console.log('[DEBUG] Script v1.13 starting load...');
 
 // Global state
 let currentSessionId = 'demo_session_1';
@@ -7,6 +7,7 @@ let thinkingIndicator = null;
 let lastMessageText = '';
 let currentBubble = null;   // DOM element of the active bubble
 let currentBubbleRole = null; // role key of the active bubble
+let lastFinalReport = '';   // dedup adk_event final reports
 
 const ROLE_LABELS = {
     control_room: 'Control Room (ADK)',
@@ -16,8 +17,8 @@ const ROLE_LABELS = {
 
 // Map role to CSS class for the bubble
 const ROLE_STYLES = {
-    control_room: 'system',
-    planner: 'system',
+    control_room: 'control-room',
+    planner: 'planner',
     executor: 'execution',
 };
 
@@ -26,6 +27,7 @@ async function sendMessage() {
     lastMessageText = '';
     currentBubble = null;
     currentBubbleRole = null;
+    lastFinalReport = '';
     const input = document.getElementById('user-input');
     const btn = document.getElementById('send-btn');
     const status = document.getElementById('orchestrator-status');
@@ -136,8 +138,9 @@ function handleEvent(event) {
             currentBubbleRole = null;
             const output = event.output;
             const text = typeof output === 'string' ? output : (output.report || '');
-            if (text) {
-                appendMessage(text, 'agent', output.status === 'Blocked' ? 'security' : 'normal');
+            if (text && text !== lastFinalReport) {
+                lastFinalReport = text;
+                appendMessage(text, 'agent', output.status === 'Blocked' ? 'security' : 'result');
                 setActiveNode('COMPLETED');
             }
         }
@@ -247,7 +250,7 @@ function appendMessage(content, sender, type = 'normal') {
 window.sendMessage = sendMessage;
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('[DEBUG] DOM Content Loaded - v1.12');
+    console.log('[DEBUG] DOM Content Loaded - v1.13');
     const input = document.getElementById('user-input');
     if (input) {
         input.addEventListener('keypress', (e) => {

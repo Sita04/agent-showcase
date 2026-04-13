@@ -22,7 +22,8 @@ async def emit_status(name: str, text: str, role: str = "control_room"):
 
 def _classify_report(report: str) -> tuple[bool, bool]:
     """Return ``(is_success, should_retry)`` for a planner/executor report."""
-    normalized = (report or "").strip().lower()
+    # Strip markdown bold/italic markers so "**Outcome:** SUCCESS" matches
+    normalized = (report or "").replace("*", "").strip().lower()
 
     success_markers = [
         "status: success",
@@ -127,7 +128,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
 
         final_report = "No report returned."
         try:
-            async with httpx.AsyncClient(timeout=150.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 # Use stream to catch intermediate artifacts from the A2A server
                 await emit_status("system", "Sending the procurement objective via A2A protocol...")
                 async with client.stream("POST", f"{A2A_SERVER_URL}/", json=json_rpc_payload) as response:
@@ -156,6 +157,10 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                                 if data.get("method") == "task/update":
                                     artifacts = data.get("params", {}).get("artifacts", [])
                                     for art in artifacts:
+                                        # Skip the final report artifact — it will be
+                                        # displayed via the adk_event return value.
+                                        if art.get("name") == "orchestration_report":
+                                            continue
                                         parts = art.get("parts", [])
                                         if parts and "text" in parts[0]:
                                             update_msg = parts[0]["text"]
@@ -195,8 +200,11 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
             ctx.state["final_outcome"] = final_report
             return {"status": "Success", "report": final_report}
         
+        # Extract a short reason for the status line — avoid dumping the full
+        # report, which will already be rendered via the adk_event return value.
+        reason_line = final_report.split("\n")[0][:120] if final_report else "Unknown error"
         print(f"\n⚠️ [Control Room] Attempt {attempt} failed:\n    Reason: {final_report}")
-        await emit_status("replanning", f"Attempt {attempt} was not successful: {final_report}")
+        await emit_status("replanning", f"Attempt {attempt} was not successful: {reason_line}")
 
         if should_retry:
             if attempt < max_attempts:

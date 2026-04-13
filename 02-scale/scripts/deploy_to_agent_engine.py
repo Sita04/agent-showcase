@@ -128,6 +128,7 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
             "mcpadapt>=0.1.20",
             "fastmcp>=3.1.1",
             "python-dotenv",
+            "requests",
             "google-cloud-aiplatform>=1.144",
         ],
         "extra_packages": [
