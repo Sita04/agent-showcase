@@ -6,16 +6,41 @@
     <title>Personalized Shopping Squad</title>
     <link rel="stylesheet" href="style.css?v=2">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
 <body>
     <div class="glass-container">
         <div class="persona-sidebar">
-            <h2>Select Persona</h2>
+            <h2>Whose Vibe Are We Matching?</h2>
             <select id="persona-select">
                 <option value="lucy">Lucy (Mid 20s, Trendy)</option>
                 <option value="adam" selected>Adam (30s, Outdoorsy)</option>
                 <option value="elena">Elena (40s, Professional)</option>
             </select>
+
+            <div class="persona-cards">
+                <div class="persona-card active" data-value="adam">
+                    <div class="persona-card-avatar">👨</div>
+                    <div class="persona-card-info">
+                        <div class="persona-card-name">Adam</div>
+                        <div class="persona-card-desc">Outdoorsy, 30s</div>
+                    </div>
+                </div>
+                <div class="persona-card" data-value="lucy">
+                    <div class="persona-card-avatar">👩</div>
+                    <div class="persona-card-info">
+                        <div class="persona-card-name">Lucy</div>
+                        <div class="persona-card-desc">Trendy, 20s</div>
+                    </div>
+                </div>
+                <div class="persona-card" data-value="elena">
+                    <div class="persona-card-avatar">👩</div>
+                    <div class="persona-card-info">
+                        <div class="persona-card-name">Elena</div>
+                        <div class="persona-card-desc">Professional, 40s</div>
+                    </div>
+                </div>
+            </div>
             <div id="persona-details" class="persona-details">
                 <p>Select a persona to see details.</p>
             </div>
@@ -24,12 +49,12 @@
         <div class="main-content">
             <header>
                 <div>
-                    <h1>Shopping Squad</h1>
+                    <h1><span class="header-icon">🎒</span> Shopping Squad</h1>
                     <div class="subtitle">AI-Powered Hyper-Personalized Curation</div>
                 </div>
                 <div class="header-right">
                     <div class="status-badge" id="bot-status">⚡ Online</div>
-                    <div class="cart-btn" id="cart-btn">🛒 <span id="cart-count">0</span></div>
+
                 </div>
             </header>
 
@@ -46,19 +71,7 @@
         </div>
     </div>
 
-    <div class="cart-sidebar" id="cart-sidebar">
-        <div class="cart-header">
-            <h2>Your Cart</h2>
-            <button class="close-btn" id="close-cart-btn">✕</button>
-        </div>
-        <div class="cart-items" id="cart-items">
-            <div class="empty-cart-msg">Your cart is empty</div>
-        </div>
-        <div class="cart-footer">
-            <div class="total-price">Total: $<span id="cart-total">0.00</span></div>
-            <button class="checkout-btn">Proceed to Checkout</button>
-        </div>
-    </div>
+
 
     <div id="confirm-modal" class="modal-overlay">
         <div class="modal-content">

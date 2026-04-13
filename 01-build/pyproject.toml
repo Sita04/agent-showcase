@@ -1,14 +1,22 @@
 [project]
 name = "01-build"
 version = "0.1.0"
-description = "Add your description here"
+description = "Build Shopping Agent"
 readme = "README.md"
 authors = [
     { name = "Laxmi Harikumar", email = "laxmih@google.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "a2a-sdk>=0.3.26",
+    "google-adk>=2.0.0a3",
+    "python-dotenv>=1.2.2",
+    "stripe>=15.0.1",
+]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+package = false

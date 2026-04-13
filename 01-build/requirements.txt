@@ -1,4 +1,0 @@
-a2a-sdk
-stripe
-python-dotenv
-"google-adk --pre"

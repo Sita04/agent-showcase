@@ -44,6 +44,10 @@ PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "gcp-samples-ic0")
 REGION = "us-central1"
 PLANNING_SA = f"planning-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
 EXECUTION_SA = f"execution-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
+CONTROL_ROOM_STATUS_URL = os.environ.get(
+    "CONTROL_ROOM_STATUS_URL",
+    "https://scale-control-room-761793285222.us-central1.run.app/api/push_status",
+)
 
 STAGING_BUCKET = f"gs://staging.{PROJECT_ID}.appspot.com"
 
@@ -124,6 +128,7 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
             "mcpadapt>=0.1.20",
             "fastmcp>=3.1.1",
             "python-dotenv",
+            "requests",
             "google-cloud-aiplatform>=1.144",
         ],
         "extra_packages": [
@@ -131,6 +136,9 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
             "agents",
             "mock_oms_mcp",
         ],
+        "env_vars": {
+            "CONTROL_ROOM_STATUS_URL": CONTROL_ROOM_STATUS_URL,
+        },
     }
 
     sys.path.insert(0, SCALE_DIR)
@@ -199,10 +207,15 @@ def deploy_planning_agent(args: argparse.Namespace) -> str:
             "langchain-core>=1.2.21",
             "google-cloud-aiplatform>=1.144",
             "google-cloud-resource-manager>=1.14.2",
+            "requests",
+            "nest_asyncio",
         ],
         "extra_packages": [
             "agents",
         ],
+        "env_vars": {
+            "CONTROL_ROOM_STATUS_URL": CONTROL_ROOM_STATUS_URL,
+        },
     }
 
     if existing_id:

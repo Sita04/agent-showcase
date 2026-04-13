@@ -57,11 +57,66 @@ class ExecutionCrewAgent:
         Returns:
             Crew execution result as a string.
         """
+        import os
+        import requests
+
+        status_url = os.environ.get("CONTROL_ROOM_STATUS_URL", "")
+
+        def _push(msg: str, name: str = "execution", role: str = "executor"):
+            if status_url:
+                try:
+                    requests.post(
+                        status_url,
+                        data={"name": name, "text": msg, "role": role},
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+
+        def _status_callback(msg: str):
+            _push(msg)
+
+        def _step_callback(step):
+            """Translate CrewAI step objects into human-readable messages."""
+            step_type = type(step).__name__
+            if step_type == "ToolResult":
+                return  # Skip raw results
+            tool = getattr(step, "tool", None)
+            raw_input = getattr(step, "tool_input", None)
+            inputs = {}
+            if isinstance(raw_input, dict):
+                inputs = raw_input
+            elif isinstance(raw_input, str):
+                try:
+                    parsed = json.loads(raw_input)
+                    if isinstance(parsed, dict):
+                        inputs = parsed
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+            if tool == "search_products" or tool == "find_similar_items":
+                query = inputs.get("query", "")
+                msg = f'Searching the product catalog for "{query}"...' if query else "Searching the product catalog..."
+            elif tool == "check_budget":
+                amount = inputs.get("amount")
+                msg = f"Checking if ${amount} is within budget..." if amount else "Validating the purchase against budget..."
+            elif tool == "create_purchase_order":
+                pid = inputs.get("product_id", "")
+                qty = inputs.get("quantity", "")
+                msg = f"Placing purchase order for {pid} x {qty} units..." if pid else "Placing the purchase order..."
+            elif tool:
+                msg = f"Using {tool}..."
+            else:
+                return  # No tool, skip
+            _push(msg)
+
         params = json.loads(input)
         crew = self._crew_class()
         result = crew.run(
             task_description=params.get("task_description", "Unknown Item"),
             budget=float(params.get("budget", 50.0)),
             quantity=int(params.get("quantity", 1)),
+            step_callback=_step_callback,
+            status_callback=_status_callback,
         )
         return str(result)

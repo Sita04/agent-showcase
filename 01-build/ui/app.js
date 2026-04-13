@@ -5,15 +5,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const imageInput = document.getElementById('image-upload');
     const uploadBtnLabel = document.querySelector('.upload-btn');
-
-    const cartBtn = document.getElementById('cart-btn');
-    const cartSidebar = document.getElementById('cart-sidebar');
-    const closeCartBtn = document.getElementById('close-cart-btn');
-    const cartItemsContainer = document.getElementById('cart-items');
-    const cartCountSpan = document.getElementById('cart-count');
-    const cartTotalSpan = document.getElementById('cart-total');
-    let cart = [];
+    const selectedSkus = new Set();
     let sessionId = Math.random().toString(36).substring(2, 15);
+    
+    // Clear cart on refresh
+    fetch('/api/clear-cart').catch(err => console.error('Error clearing cart:', err));
 
     const personaSelect = document.getElementById('persona-select');
     const personaDetails = document.getElementById('persona-details');
@@ -56,9 +52,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const p = personas[val] || personas.none;
                 personaDetails.innerHTML = typeof marked !== 'undefined' ? marked.parse(p.details) : p.details;
                 
-                // Clear cart
-                cart = [];
-                updateCartUI();
+                // Update active class on cards
+                const personaCards = document.querySelectorAll('.persona-card');
+                personaCards.forEach(c => {
+                    const isActive = c.dataset.value === val;
+                    c.classList.toggle('active', isActive);
+                    if (isActive && personaDetails) {
+                        c.appendChild(personaDetails);
+                    }
+                });
+                
+
                 
                 // Clear chat and restore welcome message
                 const chatWindow = document.getElementById('chat-window');
@@ -84,11 +88,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         const p = personas[val] || personas.none;
         personaDetails.innerHTML = typeof marked !== 'undefined' ? marked.parse(p.details) : p.details;
         
+        const activeCard = document.querySelector(`.persona-card[data-value="${val}"]`);
+        if (activeCard && personaDetails) {
+            activeCard.appendChild(personaDetails);
+        }
+        
         if (val === 'adam') {
             userInput.value = "Show my scenarios";
             sendMessage();
         }
     }
+
+    // Handle persona card clicks
+    const personaCards = document.querySelectorAll('.persona-card');
+    personaCards.forEach(card => {
+        card.addEventListener('click', () => {
+            const val = card.dataset.value;
+            if (personaSelect && val !== personaSelect.value) {
+                personaSelect.value = val;
+                personaSelect.dispatchEvent(new Event('change'));
+            }
+        });
+    });
 
     if (personaDetails) {
         personaDetails.addEventListener('click', (e) => {
@@ -104,52 +125,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    if (cartBtn) {
-        cartBtn.addEventListener('click', () => {
-            cartSidebar.classList.add('open');
-        });
-    }
 
-    if (closeCartBtn) {
-        closeCartBtn.addEventListener('click', () => {
-            cartSidebar.classList.remove('open');
-        });
-    }
 
-    const checkoutBtn = document.querySelector('.checkout-btn');
-    if (checkoutBtn) {
-        checkoutBtn.addEventListener('click', async () => {
-            console.log('[DEBUG] Checkout clicked');
-            if (cart.length === 0) {
-                alert('Your cart is empty!');
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/create-checkout-session', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(cart),
-                });
-                
-                const data = await response.json();
-                console.log('[DEBUG] Checkout session response:', data);
-                
-                if (data.url) {
-                    window.location.href = data.url;
-                } else if (data.error) {
-                    alert(`Error creating checkout session: ${data.error}`);
-                } else {
-                    alert('Failed to create checkout session');
-                }
-            } catch (error) {
-                console.error('[DEBUG] Checkout error:', error);
-                alert('Error connecting to payment server');
-            }
-        });
-    }
+
 
     if (imageInput && uploadBtnLabel) {
         imageInput.addEventListener('change', () => {
@@ -234,24 +212,62 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!a2uiData || !a2uiData.beginRendering) return;
         
         const content = a2uiData.beginRendering.content;
-        if (!content || !content.Column) return;
+        if (!content || (!content.Column && !content.Row)) return;
         
         const msgDiv = document.createElement('div');
         msgDiv.className = `message agent product-results`;
         
-        const cards = content.Column.children;
+        const cards = content.Column?.children || content.Row?.children;
         if (!cards) return;
         
         const surfaceId = a2uiData.beginRendering && a2uiData.beginRendering.surfaceId;
         const grid = document.createElement('div');
         if (surfaceId === 'scenario-options') {
             grid.className = 'scenario-list';
+        } else if (surfaceId === 'proposed-plan') {
+            grid.className = 'proposed-plan-list';
         } else {
             grid.className = 'product-grid';
         }
         
         cards.forEach((cardWrapper, index) => {
-            if (cardWrapper.Button) {
+            if (cardWrapper.Card && surfaceId === 'scenario-options') {
+                const cardDiv = document.createElement('div');
+                cardDiv.className = 'scenario-card';
+                cardWrapper.Card.children.forEach(child => {
+                    if (child.Image) {
+                        const img = document.createElement('img');
+                        img.src = child.Image.src;
+                        img.alt = child.Image.alt;
+                        img.className = 'scenario-img';
+                        cardDiv.appendChild(img);
+                    } else if (child.Text) {
+                        const textDiv = document.createElement('div');
+                        textDiv.className = `scenario-text ${child.Text.style || ''}`;
+                        textDiv.textContent = child.Text.text;
+                        cardDiv.appendChild(textDiv);
+                    } else if (child.Button) {
+                        const btn = document.createElement('button');
+                        btn.className = 'scenario-btn';
+                        btn.textContent = child.Button.child.Text.text;
+                        btn.onclick = () => {
+                            const action = child.Button.action;
+                            if (action && action.command === 'send_message') {
+                                sendMessage(action.params.message, action.params.display_message);
+                            }
+                        };
+                        cardDiv.appendChild(btn);
+                    }
+                });
+                grid.appendChild(cardDiv);
+                return;
+            } else if (cardWrapper.Image) {
+                const img = document.createElement('img');
+                img.src = cardWrapper.Image.src;
+                img.alt = cardWrapper.Image.alt;
+                img.className = 'scenario-img';
+                grid.appendChild(img);
+            } else if (cardWrapper.Button) {
                 const btn = document.createElement('button');
                 btn.className = 'scenario-btn';
                 btn.textContent = cardWrapper.Button.child.Text.text;
@@ -291,6 +307,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     } else if (child.Text.style === 'subtitle') {
                         priceStr = child.Text.text;
                         subtitleHtml = `<div class="product-meta"><span class="product-price">${priceStr}</span></div>`;
+                    } else {
+                        subtitleHtml += `<div class="product-desc">${child.Text.text}</div>`;
                     }
                 } else if (child.Button) {
                     const action = child.Button.action;
@@ -305,9 +323,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                             }
                         }
                         const safeName = name.replace(/"/g, '&quot;');
-                        const isInCart = cart.some(item => item.sku === sku);
-                        const btnText = isInCart ? 'Remove from Cart' : child.Button.child.Text.text;
-                        const btnStyle = isInCart ? 'width: 100%; border: none; background: #dc3545; color: white;' : 'width: 100%; border: none;';
+                        const btnText = child.Button.child.Text.text;
+                        const btnStyle = 'width: 100%; border: none;';
                         buttonHtml += `<button class="product-link cart-action-btn" style="${btnStyle}" data-sku="${sku}" data-name="${safeName}" data-price="${priceStr}" data-img="${imgSrc}">${btnText}</button>`;
                     }
                 }
@@ -329,6 +346,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     cardDiv.style.gridColumn = '1 / -1';
                     cardDiv.style.background = '#f8f9fa';
                     cardDiv.style.borderLeft = '4px solid #007bff';
+                } else if (surfaceId === 'cart-summary') {
+                    if (imgSrc) {
+                        cardDiv.className = 'product-card horizontal-card';
+                    } else {
+                        cardDiv.className = 'product-card summary-card';
+                        cardDiv.style.gridColumn = '1 / -1';
+                    }
                 } else {
                     cardDiv.className = 'product-card';
                 }
@@ -344,47 +368,35 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             
             const cartBtns = cardDiv.querySelectorAll('.cart-action-btn');
+            console.log(`DEBUG: Found ${cartBtns.length} cart buttons in card`, cardDiv);
             cartBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     const sku = btn.dataset.sku;
                     const name = btn.dataset.name;
                     const priceStr = btn.dataset.price;
-                    const imgSrc = btn.dataset.img;
+                    console.log('DEBUG: Cart button clicked', {sku, name, priceStr});
                     
-                    const isInCart = cart.some(item => item.sku === sku);
-                    
-                    if (isInCart) {
-                        // Remove from cart
-                        cart = cart.filter(item => item.sku !== sku);
-                        btn.textContent = 'Add to Cart';
+                    if (selectedSkus.has(sku)) {
+                        selectedSkus.delete(sku);
+                        btn.textContent = 'Select';
                         btn.style.background = '';
                         btn.style.color = '';
-                        updateCartUI();
                         
-                        sendCartAction('remove', sku);
+                        userInput.value = `I want to remove ${name} (SKU: ${sku}) from my order.`;
                     } else {
-                        // Add to cart
-                        const priceMatch = priceStr.match(/\$(\d+(\.\d+)?)/);
-                        const price = priceMatch ? parseFloat(priceMatch[1]) : 0.0;
-                        
-                        const existingItem = cart.find(item => item.sku === sku);
-                        if (existingItem) {
-                            existingItem.quantity = (existingItem.quantity || 1) + 1;
-                        } else {
-                            cart.push({ sku, name, price, imgSrc, quantity: 1 });
-                        }
-                        
-                        btn.textContent = 'Remove from Cart';
+                        selectedSkus.add(sku);
+                        btn.textContent = 'Unselect';
                         btn.style.background = '#dc3545';
                         btn.style.color = 'white';
-                        updateCartUI();
                         
-                        sendCartAction('add', sku);
+                        userInput.value = `I want to add ${name} (SKU: ${sku}) to my order.`;
                     }
+                    sendMessage();
                 });
             });
             
             const msgBtns = cardDiv.querySelectorAll('.msg-action-btn');
+            console.log(`DEBUG: Found ${msgBtns.length} msg buttons in card`, cardDiv);
             msgBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     userInput.value = btn.dataset.message;
@@ -400,113 +412,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         chatWindow.scrollTop = chatWindow.scrollHeight;
     }
 
-    window.handleAddToCart = function(sku, name, priceStr, imgSrc) {
-        console.log('[DEBUG] handleAddToCart called with:', { sku, name, priceStr, imgSrc });
-        // Parse price number
-        const priceMatch = priceStr.match(/\$(\d+(\.\d+)?)/);
-        const price = priceMatch ? parseFloat(priceMatch[1]) : 0.0;
-        console.log('[DEBUG] Parsed price:', price);
 
-        // Add to local cart
-        const existingItem = cart.find(item => item.sku === sku);
-        if (existingItem) {
-            existingItem.quantity = (existingItem.quantity || 1) + 1;
-        } else {
-            cart.push({ sku, name, price, imgSrc, quantity: 1 });
-        }
-        console.log('[DEBUG] Cart now:', cart);
-        updateCartUI();
 
-        // Send message to agent
-        userInput.value = `I'll take the item with SKU ${sku}`;
-        sendMessage();
-    };
 
-    function updateCartUI() {
-        // Update total count of items
-        const totalCount = cart.reduce((sum, item) => sum + (item.quantity || 1), 0);
-        if (cartCountSpan) cartCountSpan.textContent = totalCount;
-        
-        if (!cartItemsContainer) return;
-        
-        if (cart.length === 0) {
-            cartItemsContainer.innerHTML = '<div class="empty-cart-msg">Your cart is empty</div>';
-            if (cartTotalSpan) cartTotalSpan.textContent = '0.00';
-            return;
-        }
-        
-        cartItemsContainer.innerHTML = '';
-        let total = 0;
-        
-        cart.forEach((item, index) => {
-            const quantity = item.quantity || 1;
-            total += item.price * quantity;
-            const itemDiv = document.createElement('div');
-            itemDiv.className = 'cart-item';
-            itemDiv.innerHTML = `
-                <img src="${item.imgSrc}" alt="${item.name}" class="cart-item-img" onerror="this.src='https://via.placeholder.com/50x50?text=Failed'">
-                <div class="cart-item-info">
-                    <div class="cart-item-name">${item.name}</div>
-                    <div class="cart-item-price">$${item.price.toFixed(2)}</div>
-                    <div class="cart-item-quantity">
-                        <button class="qty-btn" onclick="window.handleChangeQuantity(${index}, -1)">-</button>
-                        <span class="qty-val">${quantity}</span>
-                        <button class="qty-btn" onclick="window.handleChangeQuantity(${index}, 1)">+</button>
-                    </div>
-                </div>
-                <button class="remove-item-btn" onclick="window.handleRemoveFromCart(${index})">🗑️</button>
-            `;
-            cartItemsContainer.appendChild(itemDiv);
-        });
-        
-        if (cartTotalSpan) cartTotalSpan.textContent = total.toFixed(2);
-    }
 
-    window.handleChangeQuantity = function(index, delta) {
-        if (!cart[index].quantity) cart[index].quantity = 1;
-        cart[index].quantity += delta;
-        if (cart[index].quantity <= 0) {
-            cart.splice(index, 1);
-        }
-        updateCartUI();
-    };
-
-    window.handleRemoveFromCart = function(index) {
-        cart.splice(index, 1);
-        updateCartUI();
-    };
-
-    async function sendCartAction(action, sku) {
-        try {
-            const formData = new FormData();
-            formData.append('action', action);
-            formData.append('sku', sku);
-
-            const response = await fetch('/api/cart', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                console.error(`Server returned ${response.status}`);
-                return;
-            }
-
-            const data = await response.json();
-            console.log('[DEBUG] Cart action response:', data);
-        } catch (error) {
-            console.error('Error sending cart action:', error);
-        }
-    }
-
-    async function sendMessage() {
-        const text = userInput.value.trim();
+    async function sendMessage(payload = null, displayText = null) {
+        const text = (typeof payload === 'string') ? payload : userInput.value.trim();
+        const display = displayText !== null ? displayText : text;
         const file = imageInput ? imageInput.files[0] : null;
         
         if (!text && !file) return;
 
         // Visual feedback for what was sent
-        if (text) appendMessage(text, 'user');
+        if (display) appendMessage(display, 'user');
         if (file) {
             const imgUrl = URL.createObjectURL(file);
             appendMessage(imgUrl, 'user', true);
@@ -552,16 +470,36 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Remove typing indicator
             loadingMsg.remove();
 
-            if (data.a2ui_data) {
-                renderA2UI(data.a2ui_data);
-            } else if (data.found_options && data.found_options.length > 0) {
-                appendProductCards(data.found_options);
+            const surfaceId = data.a2ui_data?.beginRendering?.surfaceId;
+
+            if (surfaceId === 'cart-summary') {
+                // For Order Summary, show reply ABOVE
+                if (data.reply) {
+                    appendMessage(data.reply, 'agent');
+                }
+                if (data.a2ui_data) {
+                    renderA2UI(data.a2ui_data);
+                }
+            } else {
+                // Default behavior (including planning): show reply BELOW
+                if (data.a2ui_data) {
+                    renderA2UI(data.a2ui_data);
+                } else if (data.found_options && data.found_options.length > 0) {
+                    appendProductCards(data.found_options);
+                }
+
+                if (data.reply) {
+                    appendMessage(data.reply, 'agent');
+                }
             }
 
             if (data.status === "Awaiting human approval" || data.status === "Awaiting human selection") {
-                appendMessage(data.message || `Awaiting approval: check server logs`, 'agent');
-            } else if (data.reply) {
-                appendMessage(data.reply, 'agent');
+                const msg = data.message || '';
+                if (msg && !msg.includes('sys_speaker') && !msg.includes('You are an agent')) {
+                    appendMessage(msg, 'agent');
+                } else {
+                    appendMessage("👉 Processed your selection. Ready to proceed?", 'agent');
+                }
             }
 
         } catch (error) {
@@ -605,8 +543,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
             // Clear cart on success!
-            cart = [];
-            updateCartUI();
+            fetch('/api/clear-cart').catch(err => console.error('Error clearing cart:', err));
             // Remove the query param from URL to avoid duplicate messages on refresh
             window.history.replaceState({}, document.title, window.location.pathname);
         }, 500);

@@ -35,10 +35,10 @@ async def health_check():
     return {"status": "ok", "message": "FastAPI is running"}
 
 @app.post("/api/push_status")
-async def push_status(name: str = Form(...), text: str = Form(...)):
+async def push_status(name: str = Form(...), text: str = Form(...), role: str = Form("planner")):
     """Callback for external processes to push updates to the dashboard."""
     print(f"[DEBUG] Received status push: {name} - {text}")
-    await dashboard_queue.put({"type": "status", "name": name, "text": text})
+    await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
     return {"status": "ok"}
 
 @app.post("/api/chat")

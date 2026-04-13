@@ -28,6 +28,8 @@ except ImportError:
     from src.tools import get_mcp_server, get_mock_oms_mcp
 from dotenv import load_dotenv
 import logging
+import threading
+import time
 try:
     from ...config.default_config import config
 except ImportError:
@@ -48,24 +50,32 @@ class LogisticsExecutionCrew:
         self.agents = ExecutorAgents()
         self.tasks = ExecutorTasks()
 
-    def run(self, task_description: str, budget: float, quantity: int, step_callback=None):
+    def run(self, task_description: str, budget: float, quantity: int,
+            step_callback=None, status_callback=None):
         """
         Executes a restock request.
-        
+
         Args:
             task_description: The description of the item to restock (e.g., "Vintage Sci-Fi Mugs").
             budget: Maximum price per unit.
             quantity: Number of units to order.
             step_callback: Optional callback for real-time progress.
+            status_callback: Optional callback for initialization status updates.
         """
+        def _status(msg: str):
+            if status_callback:
+                status_callback(msg)
+
         # Connect to both MCP servers using an ExitStack to manage multiple context managers
+        _status("Connecting to the product catalog (Vector Search)...")
         mcp_server = get_mcp_server()
         oms_mcp_server = get_mock_oms_mcp()
-        
+
         with ExitStack() as stack:
             vector_mcp_tools = stack.enter_context(mcp_server)
             oms_mcp_tools = stack.enter_context(oms_mcp_server)
-            
+            _status("Product catalog and order management systems connected.")
+
             # Create Agents
             sourcing_agent = self.agents.sourcing_specialist(mcp_tools=vector_mcp_tools)
             procurement_agent = self.agents.procurement_officer(mcp_tools=oms_mcp_tools)
@@ -96,6 +106,35 @@ class LogisticsExecutionCrew:
                 }
             }
 
+            # Heartbeat: emit timed messages during the initial gap
+            # before the first step_callback fires.
+            heartbeat_stop = threading.Event()
+
+            heartbeat_messages = [
+                (5,  "Calling the LLM to analyze the request and plan a search strategy..."),
+                (12, "Querying the product catalog via Vector Search..."),
+                (22, "Processing search results from the catalog..."),
+            ]
+
+            def _heartbeat():
+                start = time.monotonic()
+                for delay, msg in heartbeat_messages:
+                    remaining = delay - (time.monotonic() - start)
+                    if remaining > 0 and not heartbeat_stop.wait(remaining):
+                        _status(msg)
+                    if heartbeat_stop.is_set():
+                        return
+
+            heartbeat_thread = threading.Thread(target=_heartbeat, daemon=True)
+
+            # Wrap step_callback so the first invocation kills the heartbeat
+            original_step_callback = step_callback
+
+            def _step_callback_wrapper(step):
+                heartbeat_stop.set()
+                if original_step_callback:
+                    original_step_callback(step)
+
             # Create Crew
             crew = Crew(
                 agents=[sourcing_agent, procurement_agent],
@@ -105,11 +144,14 @@ class LogisticsExecutionCrew:
                 memory=False,
                 planning=False,  # Disabled due to JSON parsing bugs in gemini-2.5-flash
                 embedder=vertex_embedder, # type: ignore
-                step_callback=step_callback
+                step_callback=_step_callback_wrapper if step_callback else None
             )
 
             # Execute
+            _status("**Sourcing Specialist** is searching the catalog for matching products...")
+            heartbeat_thread.start()
             result = crew.kickoff()
+            heartbeat_stop.set()
             return result
 
 # Example Usage (for testing)

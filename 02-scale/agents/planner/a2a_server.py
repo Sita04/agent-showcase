@@ -1,10 +1,14 @@
 import asyncio
 import json
 import os
+import sys
 import click
 import uvicorn
 from dotenv import load_dotenv
 import vertexai
+
+# Ensure the 02-scale/ directory is on sys.path so `from agents.xxx` imports work
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 # --- A2A Server Imports ---
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -52,7 +56,7 @@ class PlannerAgentExecutor(AgentExecutor):
         # Extract the incoming objective from another agent
         objective = context.get_user_input()
         if not objective:
-            raise ServerError(error=InvalidParamsError("User query (objective) cannot be empty."))
+            raise ServerError(error=InvalidParamsError(message="User query (objective) cannot be empty."))
 
         # Initialize tracking task
         task = context.current_task or new_task(context.message)
@@ -61,16 +65,25 @@ class PlannerAgentExecutor(AgentExecutor):
 
         try:
             print(f"\n🚀 [A2A Executor] Triggering LangGraph with objective: '{objective}'")
+            # Push directly to dashboard — A2A message/send doesn't stream artifacts
+            from agents.planner.graph import _push_to_dashboard
+            _push_to_dashboard("Setting up the LangGraph planning workflow...", "system")
+            await updater.add_artifact(
+                [Part(root=TextPart(text="Setting up the LangGraph planning workflow..."))],
+                name="planner_step",
+            )
 
             planner_engine = _build_planner_agent_engine()
             if planner_engine is not None:
+                _push_to_dashboard("Delegating to the cloud-hosted Planning Agent on Agent Engine...", "system")
                 await updater.add_artifact(
-                    [Part(root=TextPart(text="Planner bridge: Querying Agent Engine planner..."))],
+                    [Part(root=TextPart(text="Delegating to the cloud-hosted Planning Agent on Agent Engine..."))],
                     name="planner_step",
                 )
                 final_report = await asyncio.to_thread(planner_engine.query, input=objective)
+                _push_to_dashboard("Cloud-hosted Planning Agent completed.", "system")
                 await updater.add_artifact(
-                    [Part(root=TextPart(text="Planner bridge: Agent Engine planner completed."))],
+                    [Part(root=TextPart(text="Cloud-hosted Planning Agent completed."))],
                     name="planner_step",
                 )
                 await updater.add_artifact(
@@ -93,6 +106,8 @@ class PlannerAgentExecutor(AgentExecutor):
             initial_state: PlanState = {"objective": objective}
             
             # 3. Execute the graph asynchronously with streaming
+            _push_to_dashboard("Planning workflow ready. Starting execution...", "system")
+            await on_graph_update("Planning workflow ready. Starting execution...")
             final_report = "Execution completed, but no report was generated."
             async for step in graph.astream(initial_state):
                 # Each 'step' is a dict of {node_name: state_delta}
@@ -100,7 +115,7 @@ class PlannerAgentExecutor(AgentExecutor):
                     print(f"  [Planner] Node '{node_name}' finished.")
                     
                     # Also send a node completion artifact
-                    await on_graph_update(f"LangGraph: Node '{node_name}' finished.")
+                    await on_graph_update(f"Completed stage: {node_name}")
                     
                     # Update final report if it appears in the delta
                     if "final_report" in state and state["final_report"]:
@@ -114,8 +129,8 @@ class PlannerAgentExecutor(AgentExecutor):
 
         except Exception as e:
             print(f"❌ [A2A Executor] Error occurred during execution: {e}")
-            await updater.fail()
-            raise ServerError(error=InternalError(str(e))) from e
+            await updater.failed()
+            raise ServerError(error=InternalError(message=str(e))) from e
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         raise ServerError(error=UnsupportedOperationError())
