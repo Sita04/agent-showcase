@@ -42,6 +42,28 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("PlannerAgent")
 
+
+def _push_to_dashboard(msg: str, name: str = "execution", role: str = "planner"):
+    """Push a status update directly to the Control Room dashboard.
+
+    This bypasses the A2A artifact mechanism which does not stream
+    intermediate updates when using ``message/send``.
+    """
+    try:
+        import requests
+        status_url = os.environ.get(
+            "CONTROL_ROOM_STATUS_URL",
+            "http://127.0.0.1:8000/api/push_status",
+        )
+        requests.post(
+            status_url,
+            data={"name": name, "text": msg, "role": role},
+            timeout=1.0,
+        )
+    except Exception:
+        pass
+
+
 class PlannerNodes:
     def __init__(self, crew_engine=None, on_update=None):
         # We use the modern LangChain Google GenAI integration (replaces ChatVertexAI)
@@ -71,11 +93,12 @@ class PlannerNodes:
     async def analyze_alert(self, state: PlanState) -> PlanState:
         """Node 1: Extract intent from the raw objective string."""
         logger.info("--- [Planner] Step 1: Analyzing Alert ---")
+        _push_to_dashboard("Understanding the procurement request...", "system")
         if self.on_update:
-            await self.on_update("Planner: Analyzing incoming alert...")
-        
+            await self.on_update("Understanding the procurement request...")
+
         objective = state.get("objective", "")
-        
+
         # Use structured LLM to parse the alert
         raw_result = self.structured_llm.invoke(
             [
@@ -83,14 +106,22 @@ class PlannerNodes:
                 ("user", f"Extract the details from this alert: {objective}")
             ]
         )
-        
+
         # Ensure Pyright knows it's an AlertExtraction object
         if not isinstance(raw_result, AlertExtraction):
             raise ValueError("Failed to extract structured data from alert")
-            
+
         result: AlertExtraction = raw_result
-        
+
         logger.info(f"Extracted: {result}")
+
+        parsed_msg = (
+            f"Identified: **{result.item_description}** "
+            f"× {result.quantity_needed} units for **{result.region}** office"
+        )
+        _push_to_dashboard(parsed_msg, "system", role="planner")
+        if self.on_update:
+            await self.on_update(parsed_msg)
 
         return {
             "region": result.region,
@@ -111,37 +142,18 @@ class PlannerNodes:
         quantity = state.get("quantity_needed") or 1
         loop = asyncio.get_running_loop()
 
-        # Internal helper to push to dashboard
-        def push_to_dashboard(msg: str, name: str = "execution"):
-            try:
-                import requests
-                status_url = os.environ.get(
-                    "CONTROL_ROOM_STATUS_URL",
-                    "http://127.0.0.1:8000/api/push_status",
-                )
-                # Use synchronous requests here since we are in a node or thread
-                requests.post(
-                    status_url,
-                    data={"name": name, "text": msg},
-                    timeout=1.0
-                )
-            except Exception:
-                pass
-
         async def publish_execution_update(msg: str, name: str = "execution"):
+            _push_to_dashboard(msg, name=name, role="executor")
             if self.on_update:
                 await self.on_update(msg)
-            else:
-                push_to_dashboard(msg, name=name)
 
         def schedule_execution_update(msg: str, name: str = "execution") -> None:
+            _push_to_dashboard(msg, name=name, role="executor")
             if self.on_update:
                 asyncio.run_coroutine_threadsafe(
                     self.on_update(msg),
                     loop,
                 )
-            else:
-                push_to_dashboard(msg, name=name)
 
         # --- Real-time Thought Stream Integration ---
         # Intercept CrewAI logs and pipe them to the dashboard
@@ -163,7 +175,7 @@ class PlannerNodes:
         logging.getLogger("crewai").addHandler(thought_handler)
 
         await publish_execution_update(
-            f"Executor: Starting CrewAI for '{task_description}'..."
+            f"Assembling a specialized agent team to source and procure **{task_description}**..."
         )
 
         try:
@@ -184,17 +196,81 @@ class PlannerNodes:
                 crew = LogisticsExecutionCrew()
                 
                 # Bridge CrewAI's sync step_callback to our dashboard pusher
+                def _parse_tool_input(raw):
+                    """Try to parse tool_input as a dict."""
+                    if isinstance(raw, dict):
+                        return raw
+                    if isinstance(raw, str):
+                        try:
+                            parsed = json.loads(raw)
+                            if isinstance(parsed, dict):
+                                return parsed
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+                    return {}
+
+                def _extract_step_message(step):
+                    """Build a human-readable message from a CrewAI step."""
+                    step_type = type(step).__name__
+
+                    # ToolResult — show a brief summary of what came back
+                    if step_type == "ToolResult":
+                        result = getattr(step, 'result', '') or ''
+                        if "results" in result:
+                            return None  # Skip raw results; the next AgentAction will summarize
+                        if "Error" in result or "error" in result:
+                            return f"Tool returned an error, retrying with a different approach..."
+                        return None  # Skip other raw results
+
+                    # AgentAction — the interesting one
+                    tool = getattr(step, 'tool', None)
+                    raw_input = getattr(step, 'tool_input', None)
+                    thought = getattr(step, 'thought', '') or ''
+                    inputs = _parse_tool_input(raw_input)
+
+                    # Clean up thought — extract just the reasoning
+                    thought_text = ""
+                    for line in thought.split('\n'):
+                        stripped = line.strip().lstrip('-').strip()
+                        if stripped.lower().startswith('thought:'):
+                            thought_text = stripped[len('thought:'):].strip()
+                            break
+
+                    if tool == "search_products" or tool == "find_similar_items":
+                        query = inputs.get("query", "")
+                        if query:
+                            msg = f"Searching the product catalog for \"**{query}**\""
+                        else:
+                            msg = "Searching the product catalog"
+                        if thought_text:
+                            return f"{thought_text}\n{msg}..."
+                        return f"{msg}..."
+                    elif tool == "check_budget":
+                        amount = inputs.get("amount")
+                        if amount is not None:
+                            return f"Checking if **${amount}** is within budget..."
+                        return "Validating the purchase against budget..."
+                    elif tool == "create_purchase_order":
+                        pid = inputs.get("product_id", "")
+                        qty = inputs.get("quantity", "")
+                        if pid and qty:
+                            return f"Placing purchase order for **{pid}** × {qty} units..."
+                        return "Placing the purchase order..."
+                    elif tool:
+                        return f"Using {tool}..."
+
+                    # No tool — show the thought if available
+                    if thought_text:
+                        return thought_text
+                    return None
+
                 def crew_step_callback(step):
-                    agent_role = "Agent"
-                    if hasattr(step, 'agent'):
-                        agent_role = getattr(step.agent, 'role', 'Agent')
-                    
-                    # Capture specific tool usage if available
-                    tool_msg = ""
-                    if hasattr(step, 'tool'):
-                        tool_msg = f" using {step.tool}"
-                    
-                    msg = f"**{agent_role}**: Finished a step{tool_msg}."
+                    msg = _extract_step_message(step)
+                    if msg:
+                        schedule_execution_update(msg)
+
+                # Sync callback for CrewAI init status (runs in worker thread)
+                def crew_status_callback(msg: str):
                     schedule_execution_update(msg)
 
                 # Use asyncio.to_thread to keep the event loop alive while CrewAI runs
@@ -203,11 +279,11 @@ class PlannerNodes:
                     task_description=task_description,
                     budget=budget,
                     quantity=quantity,
-                    step_callback=crew_step_callback
+                    step_callback=crew_step_callback,
+                    status_callback=crew_status_callback,
                 )
 
-            await publish_execution_update("Executor: CrewAI task completed.")
-            await publish_execution_update("CrewAI task completed successfully.")
+            await publish_execution_update("Agent team completed sourcing and procurement.")
 
             # Clean up handler
             logging.getLogger("crewai").removeHandler(thought_handler)
@@ -220,7 +296,7 @@ class PlannerNodes:
 
         except Exception as e:
             logger.error(f"Execution Swarm failed: {e}")
-            await publish_execution_update(f"Executor: Failed with error: {str(e)}")
+            await publish_execution_update(f"Agent team encountered an error: {str(e)}")
             logging.getLogger("crewai").removeHandler(thought_handler)
             return {
                 "current_step": "executed",
@@ -231,8 +307,9 @@ class PlannerNodes:
     async def attempt_forbidden_action(self, state: PlanState) -> PlanState:
         """CUJ 2 Node: Attempt a forbidden vector store operation."""
         logger.info("--- [Planner] SECURITY: Attempting forbidden action (delete_index) ---")
+        _push_to_dashboard("Checking IAM permissions for the requested action...", "system")
         if self.on_update:
-            await self.on_update("Security: Checking permissions for destructive action...")
+            await self.on_update("Checking IAM permissions for the requested action...")
             
         project = config.GOOGLE_CLOUD_PROJECT
         location = "us-central1"
@@ -275,8 +352,9 @@ class PlannerNodes:
     async def generate_security_report(self, state: PlanState) -> PlanState:
         """CUJ 2 Node: Generate a security incident report after IAM rejection."""
         logger.info("--- [Planner] SECURITY: Generating Security Report ---")
+        _push_to_dashboard("Generating the security incident report...", "system")
         if self.on_update:
-            await self.on_update("Planner: Synthesizing security incident report...")
+            await self.on_update("Generating the security incident report...")
 
         prompt = SECURITY_REPORT_PROMPT.format(
             objective=state.get("objective", "Unknown"),
@@ -293,8 +371,9 @@ class PlannerNodes:
     async def generate_report(self, state: PlanState) -> PlanState:
         """Node 3: Synthesize the final outcome."""
         logger.info("--- [Planner] Step 3: Generating Final Report ---")
+        _push_to_dashboard("Generating the final procurement report...", "system")
         if self.on_update:
-            await self.on_update("Planner: Synthesizing final procurement report...")
+            await self.on_update("Generating the final procurement report...")
         
         prompt = REPORT_GENERATOR_PROMPT.format(
             objective=state.get("objective", "Unknown Objective"),

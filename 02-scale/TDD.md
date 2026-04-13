@@ -209,5 +209,5 @@ The Server connects to the Vector Search Backend (`https://ac-web2-761793285222.
    - Fully verified via `tests/integration/test_identity_shield.py` and `tests/e2e/test_cuj2_identity_shield.py`.
 9. **Full Stack Verification (April 7, 2026)**:
    - All 58 tests in the unified suite are passing.
-   - Fixed `gemini-3.1-pro-preview` truncation and reasoning errors by increasing tokens and disabling `reasoning=True` in CrewAI.
+   - Fixed `gemini-3.1-flash-lite-preview` truncation and reasoning errors by increasing tokens and disabling `reasoning=True` in CrewAI.
    - Refactored all imports to absolute paths for `pyright` compliance.

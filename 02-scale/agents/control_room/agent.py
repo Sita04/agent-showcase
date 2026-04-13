@@ -16,8 +16,8 @@ A2A_SERVER_URL = os.environ.get("PLANNER_AGENT_URL", "http://127.0.0.1:8080")
 dashboard_queue = asyncio.Queue()
 
 
-async def emit_status(name: str, text: str):
-    await dashboard_queue.put({"type": "status", "name": name, "text": text})
+async def emit_status(name: str, text: str, role: str = "control_room"):
+    await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
 
 
 def _classify_report(report: str) -> tuple[bool, bool]:
@@ -99,14 +99,18 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
     should_retry = False
     
     print(f"\n🚨 [Control Room] Received Alert: {current_objective}")
-    await emit_status("system", f"Received Alert: {current_objective}")
-    
+    await emit_status("system", f"Received request: {current_objective}")
+
     while attempt <= max_attempts:
-        msg = f"Delegating to LangGraph (Attempt {attempt})..."
+        if attempt == 1:
+            msg = "Routing the request to the Planning Agent..."
+        else:
+            msg = f"Retrying with a revised plan (attempt {attempt})..."
         print(f"\n➡️  [Control Room] {msg}\n    '{current_objective}'")
         await emit_status("system", msg)
-        
+
         # --- 1. Call A2A Server (Sub-agent Delegation) ---
+
         msg_id = str(uuid.uuid4())
         json_rpc_payload = {
             "jsonrpc": "2.0",
@@ -123,14 +127,16 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
 
         final_report = "No report returned."
         try:
-            async with httpx.AsyncClient(timeout=150.0) as client: 
+            async with httpx.AsyncClient(timeout=150.0) as client:
                 # Use stream to catch intermediate artifacts from the A2A server
+                await emit_status("system", "Sending the procurement objective via A2A protocol...")
                 async with client.stream("POST", f"{A2A_SERVER_URL}/", json=json_rpc_payload) as response:
                     if response.status_code != 200:
                         final_report = f"A2A Server error: {response.status_code}"
                         is_success = False
                         should_retry = True
                     else:
+                        await emit_status("system", "Planning Agent connected. Waiting for the plan...")
                         async for line in response.aiter_lines():
                             if not line: continue
                             try:
@@ -159,6 +165,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                                 
                                 # Handle the final result
                                 if "result" in data:
+                                    await emit_status("system", "Received the procurement report. Evaluating the outcome...")
                                     task = data["result"]
                                     artifacts = task.get("artifacts", [])
                                     if artifacts and "parts" in artifacts[-1]:
@@ -177,6 +184,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                             except Exception as e:
                                 print(f"  [Control Room] Error parsing stream line: {e}")
         except Exception as e:
+            await emit_status("system", f"Lost connection to the Planning Agent: {str(e)}")
             final_report = f"Connection error: {str(e)}"
             is_success = False
             should_retry = True
@@ -188,12 +196,12 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
             return {"status": "Success", "report": final_report}
         
         print(f"\n⚠️ [Control Room] Attempt {attempt} failed:\n    Reason: {final_report}")
-        await emit_status("replanning", f"Attempt {attempt} failed: {final_report}")
-        
+        await emit_status("replanning", f"Attempt {attempt} was not successful: {final_report}")
+
         if should_retry:
             if attempt < max_attempts:
                 print(f"\n💡 [Control Room] Triggering Re-Planner Agent...")
-                await emit_status("replanning", "Triggering Re-Planner to broaden objective...")
+                await emit_status("replanning", "Re-planning with a broader search strategy...")
                 replanner = create_replanner_agent(attempt)
                 feedback_prompt = f"Original Objective: {current_objective}\nFailure Reason: {final_report}\nPlease broaden the search."
                 

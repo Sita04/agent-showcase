@@ -1,16 +1,35 @@
-// Scale Agents Dashboard Logic v1.10 - DIAGNOSTIC MODE
-console.log('[DEBUG] Script v1.10 starting load...');
+// Scale Agents Dashboard Logic v1.12 - ROLE-GROUPED PROGRESS
+console.log('[DEBUG] Script v1.12 starting load...');
 
 // Global state
 let currentSessionId = 'demo_session_1';
+let thinkingIndicator = null;
+let lastMessageText = '';
+let currentBubble = null;   // DOM element of the active bubble
+let currentBubbleRole = null; // role key of the active bubble
+
+const ROLE_LABELS = {
+    control_room: 'Control Room (ADK)',
+    planner: 'Planner (LangGraph)',
+    executor: 'Executor (CrewAI)',
+};
+
+// Map role to CSS class for the bubble
+const ROLE_STYLES = {
+    control_room: 'system',
+    planner: 'system',
+    executor: 'execution',
+};
 
 async function sendMessage() {
     console.log('[DEBUG] sendMessage() called');
-    lastMessageText = ''; // Clear deduplication for new request
+    lastMessageText = '';
+    currentBubble = null;
+    currentBubbleRole = null;
     const input = document.getElementById('user-input');
     const btn = document.getElementById('send-btn');
     const status = document.getElementById('orchestrator-status');
-    
+
     if (!input || !btn) {
         console.error('[DEBUG] Required DOM elements not found');
         return;
@@ -70,8 +89,10 @@ async function sendMessage() {
         }
     } catch (error) {
         console.error('[DEBUG] Chat Error:', error);
+        removeThinkingIndicator();
         appendMessage('Error: ' + error.message, 'agent', 'security');
     } finally {
+        removeThinkingIndicator();
         btn.disabled = false;
         btn.textContent = 'Dispatch';
         if (status) status.textContent = 'Idle';
@@ -96,7 +117,10 @@ function handleEvent(event) {
     }
 
     if (event.type === 'status') {
-        appendMessage(event.text, 'agent', event.name);
+        const role = event.role || 'control_room';
+        const styleType = event.name === 'replanning' ? 'replanning' : (ROLE_STYLES[role] || 'system');
+        appendStatusLine(event.text, role, styleType);
+
         if (event.name === 'replanning') {
             const replannerNode = document.getElementById('node-replanner');
             if (replannerNode) {
@@ -107,6 +131,9 @@ function handleEvent(event) {
     } else if (event.type === 'adk_event') {
         if (event.node_name && event.node_name !== 'N/A') setActiveNode(event.node_name);
         if (event.output) {
+            removeThinkingIndicator();
+            currentBubble = null;
+            currentBubbleRole = null;
             const output = event.output;
             const text = typeof output === 'string' ? output : (output.report || '');
             if (text) {
@@ -117,29 +144,101 @@ function handleEvent(event) {
     }
 }
 
-let lastMessageText = '';
+function showThinkingIndicator() {
+    removeThinkingIndicator();
+    const chatWindow = document.getElementById('chat-window');
+    if (!chatWindow) return;
+    thinkingIndicator = document.createElement('div');
+    thinkingIndicator.className = 'message agent thinking';
+    thinkingIndicator.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
+    chatWindow.appendChild(thinkingIndicator);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+}
 
+function removeThinkingIndicator() {
+    if (thinkingIndicator && thinkingIndicator.parentNode) {
+        thinkingIndicator.parentNode.removeChild(thinkingIndicator);
+    }
+    thinkingIndicator = null;
+}
+
+// Append a status line — merges into the current bubble if same role
+function appendStatusLine(content, role, styleType) {
+    const chatWindow = document.getElementById('chat-window');
+    if (!chatWindow) return;
+
+    // Deduplicate
+    const normalized = content.trim();
+    if (normalized === lastMessageText) return;
+    lastMessageText = normalized;
+
+    removeThinkingIndicator();
+
+    // If same role as current bubble, append a new line to it
+    if (currentBubble && currentBubbleRole === role) {
+        const line = document.createElement('div');
+        line.className = 'status-line';
+        if (window.marked) {
+            line.innerHTML = marked.parse(content);
+        } else {
+            line.textContent = content;
+        }
+        currentBubble.appendChild(line);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+        showThinkingIndicator();
+        return;
+    }
+
+    // New role — create a new bubble
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message agent ${styleType}`;
+
+    // Role header
+    const label = ROLE_LABELS[role] || role;
+    const header = document.createElement('div');
+    header.className = 'role-header';
+    header.textContent = label;
+    msgDiv.appendChild(header);
+
+    // First status line
+    const line = document.createElement('div');
+    line.className = 'status-line';
+    if (window.marked) {
+        line.innerHTML = marked.parse(content);
+    } else {
+        line.textContent = content;
+    }
+    msgDiv.appendChild(line);
+
+    chatWindow.appendChild(msgDiv);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+
+    currentBubble = msgDiv;
+    currentBubbleRole = role;
+
+    showThinkingIndicator();
+}
+
+// Append a standalone message (user messages, final output, errors)
 function appendMessage(content, sender, type = 'normal') {
     const chatWindow = document.getElementById('chat-window');
     if (!chatWindow) return;
-    
-    // Normalize and deduplicate
-    const normalized = content.trim();
-    if (sender === 'agent' && normalized === lastMessageText) {
-        console.log('[DEBUG] Ignoring duplicate agent message');
-        return;
-    }
-    if (sender === 'agent') lastMessageText = normalized;
-    
+
+    // Break the current bubble chain
+    currentBubble = null;
+    currentBubbleRole = null;
+
+    if (sender === 'agent') removeThinkingIndicator();
+
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${sender} ${type}`;
-    
+
     if (sender === 'agent' && window.marked) {
         msgDiv.innerHTML = marked.parse(content);
     } else {
         msgDiv.textContent = content;
     }
-    
+
     chatWindow.appendChild(msgDiv);
     chatWindow.scrollTop = chatWindow.scrollHeight;
 }
@@ -148,7 +247,7 @@ function appendMessage(content, sender, type = 'normal') {
 window.sendMessage = sendMessage;
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('[DEBUG] DOM Content Loaded - v1.10');
+    console.log('[DEBUG] DOM Content Loaded - v1.12');
     const input = document.getElementById('user-input');
     if (input) {
         input.addEventListener('keypress', (e) => {

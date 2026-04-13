@@ -11,7 +11,7 @@
 - [x] Scaffold project structure (`02-scale/agents/executor`, `02-scale/mcp_server`).
 - [x] Flesh out Executor Agents (CrewAI Swarm).
   - [x] Moved prompts to dedicated `prompts.py`
-  - [x] Configured `reasoning=True` (gemini-3.1-pro-preview) and Crew `planning=True` (gemini-2.5-flash).
+  - [x] Configured `reasoning=True` (gemini-3.1-flash-lite-preview) and Crew `planning=True` (gemini-2.5-flash).
   - [x] Extracted configs to `config/default_config.py`.
 - [x] Implement and Test MCP Servers.
   - [x] Tested Vector Search MCP connection in Executor Swarm (verified Sourcing Specialist connects correctly to `search_products`).
@@ -36,7 +36,7 @@
 - **Observability:** Enabled CrewAI execution tracing locally (`CREWAI_TRACING_ENABLED=true`) to monitor internal agent thoughts, tool use, and latency without exposing logs to production environments.
 - **Project Identity:** Using `genai-blackbelt-fishfooding` for all Vertex AI operations.
 - **LLM/Vertex AI Integration:**
-  - CrewAI uses `vertex_ai/gemini-3.1-pro-preview`
+  - CrewAI uses `vertex_ai/gemini-3.1-flash-lite-preview`
   - LangGraph uses `gemini-2.5-flash` via `langchain-google-genai`.
   - Required setting `GOOGLE_CLOUD_PROJECT="genai-blackbelt-fishfooding"` in `.env`.
   - Set `OPENAI_API_KEY="NA"` to satisfy internal CrewAI framework requirements.
@@ -48,7 +48,7 @@
 - **Status Update:** Fully stabilized the unified test suite. All 58 tests (E2E, Integration, Unit) are passing with 0 `pyright` errors.
 - **Key Improvements:**
   - **Import Refactoring:** Converted all internal imports in `agents/planner/` to absolute paths (`from agents.planner.state import ...`) to ensure consistency between runtime execution and `pyright` static analysis.
-  - **CrewAI Stability Fix:** Identified and resolved a critical "None or empty response" failure in the Execution Swarm by disabling `reasoning=True` in `agents/executor/src/agents.py`. This appears to be a compatibility issue between the `gemini-3.1-pro-preview` model and CrewAI's internal reasoning loop.
+  - **CrewAI Stability Fix:** Identified and resolved a critical "None or empty response" failure in the Execution Swarm by disabling `reasoning=True` in `agents/executor/src/agents.py`. This appears to be a compatibility issue between the `gemini-3.1-flash-lite-preview` model and CrewAI's internal reasoning loop.
   - **Token Limit Increase:** Bumped `AGENT_MAX_TOKENS` to 4096 in `default_config.py` to prevent truncation during complex multi-step procurement reasoning.
   - **Test Robustness:** 
     - Added explicit null checks and `assert` statements in `_run_node` and E2E tests to satisfy strict type-checkers.
