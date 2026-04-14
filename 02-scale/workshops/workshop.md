@@ -1018,7 +1018,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
     current_objective = node_input
 
     while attempt <= max_attempts:
-        # --- 1. Call A2A Server (Sub-agent Delegation) ---
+        # 1. Call A2A Server (Sub-agent Delegation)
         json_rpc_payload = {
             "jsonrpc": "2.0",
             "id": f"req-cr-{attempt}",

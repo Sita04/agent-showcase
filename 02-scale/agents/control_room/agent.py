@@ -10,7 +10,7 @@ from google.adk.agents.llm_agent import LlmAgent
 
 A2A_SERVER_URL = os.environ.get("PLANNER_AGENT_URL", "http://127.0.0.1:8080")
 
-# --- Side-channel for Dashboard Updates ---
+# Side-channel for Dashboard Updates
 # This allows us to send real-time progress to the UI without
 # fighting ADK 2.0's strict node return types.
 dashboard_queue = asyncio.Queue()
@@ -110,7 +110,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
         print(f"\n➡️  [Control Room] {msg}\n    '{current_objective}'")
         await emit_status("system", msg)
 
-        # --- 1. Call A2A Server (Sub-agent Delegation) ---
+        # 1. Call A2A Server (Sub-agent Delegation)
 
         msg_id = str(uuid.uuid4())
         json_rpc_payload = {
@@ -201,7 +201,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
             is_success = False
             should_retry = True
 
-        # --- 2. Evaluate and Re-plan (CUJ 3) ---
+        # 2. Evaluate and Re-plan (CUJ 3)
         if is_success:
             print(f"\n🎉 [Control Room] Workflow completed successfully:\n{final_report}")
             ctx.state["final_outcome"] = final_report

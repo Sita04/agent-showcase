@@ -10,7 +10,7 @@ import vertexai
 # Ensure the 02-scale/ directory is on sys.path so `from agents.xxx` imports work
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-# --- A2A Server Imports ---
+# A2A Server Imports
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.events import EventQueue
@@ -22,7 +22,7 @@ from a2a.types import (AgentCapabilities, AgentCard, AgentSkill, InternalError,
 from a2a.utils import new_task
 from a2a.utils.errors import ServerError
 
-# --- LangGraph Imports ---
+# LangGraph Imports
 load_dotenv()
 
 

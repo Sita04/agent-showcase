@@ -155,7 +155,7 @@ class PlannerNodes:
                     loop,
                 )
 
-        # --- Real-time Thought Stream Integration ---
+        # Real-time Thought Stream Integration
         # Intercept CrewAI logs and pipe them to the dashboard
         class DashboardCallbackHandler(logging.Handler):
             def emit(self, record):

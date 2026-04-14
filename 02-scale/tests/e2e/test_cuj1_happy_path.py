@@ -44,19 +44,19 @@ async def test_happy_path_restock(planner_graph):
 
     final_state = await planner_graph.ainvoke(initial_state)
 
-    # --- Step 1: Alert analysis ---
+    # Step 1: Alert analysis
     assert final_state.get("region"), "Region was not extracted"
     assert final_state.get("item_description"), "Item description was not extracted"
     assert final_state.get("quantity_needed"), "Quantity was not extracted"
     assert final_state.get("max_budget"), "Budget was not extracted"
 
-    # --- Step 2: Delegation succeeded ---
+    # Step 2: Delegation succeeded
     assert final_state["delegation_status"] == "success", (
         f"Delegation failed: {final_state.get('execution_result')}"
     )
     assert final_state.get("execution_result"), "No execution result returned"
 
-    # --- Step 3: Final report generated ---
+    # Step 3: Final report generated
     assert final_state["current_step"] == "completed"
     report = final_state.get("final_report", "")
     assert report, "No final report generated"

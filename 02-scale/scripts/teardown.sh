@@ -29,14 +29,14 @@ echo "=== CUJ 2: Teardown ==="
 echo "Project: ${PROJECT_ID}"
 echo ""
 
-# --- Step 1: Delete Agent Engine instances ---
-echo "--- Step 1: Deleting Agent Engine instances ---"
+# Step 1: Delete Agent Engine instances
+echo "--- Step 1: Deleting Agent Engine instances"
 cd "$(dirname "$0")/.."
 uv run scripts/deploy_to_agent_engine.py --teardown || echo "  (deploy teardown skipped or failed)"
 
-# --- Step 2: Remove IAM deny policy ---
+# Step 2: Remove IAM deny policy
 echo ""
-echo "--- Step 2: Removing IAM deny policy ---"
+echo "--- Step 2: Removing IAM deny policy"
 if gcloud iam policies get "${DENY_POLICY_ID}" \
     --attachment-point="cloudresourcemanager.googleapis.com/projects/${PROJECT_ID}" \
     --kind=denypolicies 2>/dev/null; then
@@ -49,9 +49,9 @@ else
     echo "  Deny policy not found, skipping."
 fi
 
-# --- Step 3: Remove IAM role bindings ---
+# Step 3: Remove IAM role bindings
 echo ""
-echo "--- Step 3: Removing IAM role bindings ---"
+echo "--- Step 3: Removing IAM role bindings"
 
 for SA_EMAIL in "${PLANNING_SA_EMAIL}" "${EXECUTION_SA_EMAIL}"; do
     for ROLE in "roles/aiplatform.user" "roles/aiplatform.editor"; do
@@ -63,9 +63,9 @@ for SA_EMAIL in "${PLANNING_SA_EMAIL}" "${EXECUTION_SA_EMAIL}"; do
     done
 done
 
-# --- Step 4: Delete service accounts ---
+# Step 4: Delete service accounts
 echo ""
-echo "--- Step 4: Deleting service accounts ---"
+echo "--- Step 4: Deleting service accounts"
 
 for SA_EMAIL in "${PLANNING_SA_EMAIL}" "${EXECUTION_SA_EMAIL}"; do
     if gcloud iam service-accounts describe "${SA_EMAIL}" --project="${PROJECT_ID}" &>/dev/null; then

@@ -167,7 +167,26 @@ Dashboard features:
 * **Orchestration graph** -- visual highlighting of active stage (Planning -> Executing -> Re-planning -> Completed)
 * **Security enforcement** -- instant "Identity Shield" alerts when IAM blocks destructive actions
 
-#### Option B: CLI-only (A2A with ADK 2.0)
+#### Option B: Standardized A2A Discovery & Invocation (Registry-Ready)
+
+The Control Room now functions as a fully-compliant **A2A Host**, making it discoverable and invokable by other agents or platforms (like an **Agent Registry**).
+
+*   **Discovery**: The agent's identity and skills are exposed at `/.well-known/agent-card.json`.
+*   **Standardized Invocation**: The entire orchestration flow can be triggered via a JSON-RPC 2.0 `message/send` request.
+
+To verify discovery:
+```bash
+curl http://localhost:8000/.well-known/agent-card.json
+```
+
+To invoke via A2A:
+```bash
+curl -X POST http://localhost:8000/ \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {"message": {"messageId": "msg-001", "parts": [{"text": "Order 2 Mugs for Northeast"}], "role": "user"}}}' \
+  -H "Content-Type: application/json"
+```
+
+#### Option C: CLI-only (A2A with ADK 2.0)
 
 **Terminal 1** -- Start the A2A LangGraph Server:
 ```bash

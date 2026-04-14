@@ -49,8 +49,8 @@ echo "Execution Agent SA: ${EXECUTION_SA_EMAIL}"
 echo "Control Room SA: ${CONTROL_ROOM_SA_EMAIL}"
 echo ""
 
-# --- Step 1: Create Service Accounts (idempotent) ---
-echo "--- Step 1: Creating service accounts ---"
+# Step 1: Create Service Accounts (idempotent)
+echo "--- Step 1: Creating service accounts"
 
 if gcloud iam service-accounts describe "${PLANNING_SA_EMAIL}" --project="${PROJECT_ID}" &>/dev/null; then
     echo "  ${PLANNING_SA} already exists, skipping."
@@ -82,9 +82,9 @@ else
     echo "  Created ${CONTROL_ROOM_SA}."
 fi
 
-# --- Step 1.5: Create or Update Least-Privilege Planner Role ---
+# Step 1.5: Create or Update Least-Privilege Planner Role
 echo ""
-echo "--- Step 1.5: Ensuring custom planning runtime role ---"
+echo "--- Step 1.5: Ensuring custom planning runtime role"
 
 PLANNING_ROLE_PERMISSIONS="aiplatform.endpoints.predict,aiplatform.locations.get,aiplatform.locations.list,aiplatform.reasoningEngines.get,aiplatform.reasoningEngines.query,resourcemanager.projects.get"
 
@@ -108,9 +108,9 @@ else
         --stage=GA > /dev/null
 fi
 
-# --- Step 2: Grant IAM Roles ---
+# Step 2: Grant IAM Roles
 echo ""
-echo "--- Step 2: Granting IAM roles ---"
+echo "--- Step 2: Granting IAM roles"
 
 # Planning Agent: use the custom least-privilege runtime role.
 echo "  Granting ${PLANNING_ROLE} to ${PLANNING_SA}..."
@@ -156,10 +156,10 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --condition=None \
     --quiet > /dev/null
 
-# --- Step 3: Create IAM Deny Policy for Planning Agent ---
+# Step 3: Create IAM Deny Policy for Planning Agent
 # This explicitly denies the planning agent from deleting vector indexes.
 echo ""
-echo "--- Step 3: Creating IAM deny policy for Planning Agent ---"
+echo "--- Step 3: Creating IAM deny policy for Planning Agent"
 
 DENY_POLICY_ID="deny-planning-agent-index-delete"
 
