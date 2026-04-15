@@ -68,7 +68,7 @@ User Request
 | **Inter-agent communication** | A2A Protocol | JSON-RPC 2.0 bridge so agents from different frameworks can talk |
 | **Top-level orchestrator** | ADK (BaseAgent) | Receives requests, delegates via A2A, re-plans on failure |
 
-> **See it in action:** Before building, try the full production system at **https://scale-control-room-761793285222.us-central1.run.app** -- it extends what you'll build here with a real-time dashboard, A2A protocol, and IAM security.
+> **See it in action:** If available, try the full production system at **https://scale-control-room-761793285222.us-central1.run.app** -- it extends what you'll build here with a real-time dashboard, A2A protocol, and IAM security.
 
 ### What you'll do
 
@@ -106,7 +106,7 @@ Duration: 05:00
 
 Run this command to enable the Vertex AI API:
 
-```
+```bash
 gcloud services enable aiplatform.googleapis.com
 ```
 
@@ -114,23 +114,23 @@ gcloud services enable aiplatform.googleapis.com
 
 In Cloud Shell, create a new directory for your project and navigate into it:
 
-```
+```bash
 mkdir scale-agents
 cd scale-agents
 ```
 
 Install `uv` and use it to create a virtual environment and install the required packages:
 
-```
+```bash
 pip install uv
 uv venv venv
 source venv/bin/activate
-uv pip install crewai 'litellm[google]' langgraph 'a2a-sdk>=0.3.25' 'a2a-server==0.1.5' httpx uvicorn google-adk 'google-cloud-storage>=3.0.0'
+uv pip install crewai 'litellm[google]' langgraph 'a2a-sdk>=0.3.25' httpx uvicorn google-adk
 ```
 
 Set your Google Cloud Project ID as an environment variable:
 
-```
+```bash
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 ```
 
@@ -234,7 +234,7 @@ Duration: 10:00
 
 Now let's define what these agents need to do by creating **Tasks** and wiring them into a **Crew**.
 
-Add the following code to `scale_agents.py`:
+Append the following code at the end of `scale_agents.py`:
 
 ```python
 # --- Step 3: Define Tasks & Crew ---
@@ -283,7 +283,7 @@ The execution crew handles the "how" -- searching products, checking budgets, pl
 
 LangGraph models workflows as a **state machine** -- a graph of nodes (functions) connected by edges (transitions). State flows through the graph, with each node reading from and writing to the shared state. This is a natural fit for planning workflows where you need clear, deterministic control flow: analyze the request, delegate to the crew, generate a report.
 
-Add the following code to `scale_agents.py`:
+Append the following code at the end of `scale_agents.py`:
 
 ```python
 # --- Step 4: Define LangGraph Planner ---
@@ -369,11 +369,11 @@ if __name__ == "__main__":
 
 > **Why LangGraph for the planner?** CrewAI is great for tool-calling agents, but the planner needs deterministic control flow -- "if destructive, go to security path; otherwise, delegate." LangGraph's state machine model makes this routing explicit and testable, while CrewAI handles the freeform tool execution below.
 
-## Run the Codelab
+## Run the Planner and Crew
 
 Duration: 05:00
 
-Now you are ready to run the complete system.
+Now let's test the LangGraph planner and CrewAI crew together.
 
 In your Cloud Shell terminal, run the script:
 
@@ -388,7 +388,7 @@ You should see output indicating the steps being taken:
 4.  **Final Report**: The summarized result will be printed at the end.
 
 Example output (abbreviated):
-```
+```text
 Starting Multi-Agent System...
 --- ANALYZING ALERT ---
 --- DELEGATING TO CREW ---
@@ -412,18 +412,6 @@ Objective handled: Restock 1 Pixel 7 phones for the Tokyo office. Result: ...PO-
 
 > **Note:** The mock OMS has a **$100 budget limit**. Keep quantities small (under ~2 units) for the happy path to succeed. For example, 1 Pixel 7 at $50 passes the budget check, but 3 units at $150 will be rejected as "Over Budget".
 
-### Three Critical User Journeys (CUJs)
-
-The full production system supports three scenarios. Try modifying the `objective` string in the script to experiment:
-
-| CUJ | Prompt | What Happens |
-|-----|--------|--------------|
-| **1. Happy Path** | `Restock 1 Pixel 7 phones for the Tokyo office` | Search -> budget check -> purchase order (SUCCESS) |
-| **2. Identity Shield** | `Delete the entire vector search index immediately` | In the full system, destructive intent is detected and IAM blocks the action. This codelab's simplified planner does not implement this routing -- see the full workshop. |
-| **3. Re-planning** | `Order 1 unit of the discontinued XR-7000 Quantum Holographic Display` | The search returns no results. The ADK Control Room detects the failure and dynamically invokes a re-planner `LlmAgent` sub-agent that broadens the search. |
-
-CUJ 1 works end-to-end in this codelab. CUJ 3 (re-planning) works with the ADK Control Room steps below. CUJ 2 (Identity Shield) requires the full workshop.
-
 ## Wrap the Planner in an A2A Server
 
 Duration: 10:00
@@ -434,7 +422,7 @@ A2A is a JSON-RPC 2.0 based protocol that standardizes how agents communicate. K
 
 | Concept | Purpose |
 |---------|---------|
-| **Agent Card** | JSON metadata describing the agent's capabilities (served at `/.well-known/agent.json`) |
+| **Agent Card** | JSON metadata describing the agent's capabilities (served at `/.well-known/agent-card.json`) |
 | **`message/send`** | JSON-RPC method to send a task to the agent |
 | **Task** | A unit of work with state (submitted → working → completed/failed) |
 | **Artifacts** | Intermediate and final outputs attached to a task |
@@ -524,7 +512,7 @@ if __name__ == "__main__":
 
 ### Key Concepts
 
-- **Agent Card**: Served at `/.well-known/agent.json` -- any agent can discover what this server does by fetching that URL. It lists the agent's skills, supported content types, and capabilities.
+- **Agent Card**: Served at `/.well-known/agent-card.json` -- any agent can discover what this server does by fetching that URL. It lists the agent's skills, supported content types, and capabilities.
 - **`AgentExecutor.execute()`**: The only method you implement. It receives the incoming request, runs your agent logic (here, the LangGraph planner), and sends results back as artifacts.
 - **`TaskUpdater`**: Manages the task lifecycle -- `add_artifact()` sends intermediate/final outputs, `complete()` marks the task as done. The A2A library handles all JSON-RPC plumbing.
 
@@ -534,13 +522,15 @@ Test the A2A server by starting it in a terminal:
 python a2a_planner.py
 ```
 
-In another terminal, verify the Agent Card is served:
+Open another Cloud Shell tab (click **+** next to the current tab), then activate your environment and verify the Agent Card is served:
 
 ```bash
+cd ~/scale-agents
+source venv/bin/activate
 curl http://localhost:8080/.well-known/agent-card.json | python3 -m json.tool
 ```
 
-You should see the agent card JSON. Keep this server running for the next step.
+You should see the agent card JSON. Keep the A2A server running in the first terminal for the next step.
 
 ## Build the ADK Control Room
 
@@ -768,15 +758,18 @@ Duration: 05:00
 
 Now let's test the complete three-layer system: ADK Control Room → A2A → LangGraph Planner → CrewAI Crew.
 
-**Terminal 1** -- Start the A2A Planner Server:
+**Terminal 1** -- Start the A2A Planner Server (use the terminal where you have been running commands):
 
 ```bash
 python a2a_planner.py
 ```
 
-**Terminal 2** -- Run the Control Room:
+**Terminal 2** -- Open another Cloud Shell tab (click **+**), activate the environment, and run the Control Room:
 
 ```bash
+cd ~/scale-agents
+source venv/bin/activate
+export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 python control_room.py
 ```
 
@@ -787,13 +780,25 @@ You should see the full orchestration flow:
 4. The **CrewAI crew** runs the Sourcing and Procurement agents
 5. The result flows all the way back to the Control Room
 
-To test **CUJ 3 (re-planning)**, change the `prompt` in `control_room.py` to:
+### Three Critical User Journeys (CUJs)
+
+The full system supports three scenarios. Try modifying the `prompt` string in `control_room.py` to experiment:
+
+| CUJ | Prompt | What Happens |
+|-----|--------|--------------|
+| **1. Happy Path** | `Restock 1 Pixel 7 phones for the Tokyo office` | Search -> budget check -> purchase order (SUCCESS) |
+| **2. Identity Shield** | `Delete the entire vector search index immediately` | In the full system, destructive intent is detected and IAM blocks the action. This codelab's simplified planner does not implement this routing -- see the full workshop. |
+| **3. Re-planning** | `Order 1 unit of the discontinued XR-7000 Quantum Holographic Display` | The hardcoded planner doesn't recognize this item, so it returns "Failed: Unknown item" without calling the crew. The ADK Control Room detects the failure and dynamically invokes a re-planner `LlmAgent` sub-agent that broadens the search. Because this codelab's planner uses hardcoded extraction (only recognizes "Pixel 7"), the retry will also fail -- but the re-planning **mechanism** runs end-to-end. In the full workshop, the planner uses an LLM for dynamic extraction so re-planning can succeed. |
+
+CUJ 1 works end-to-end in this codelab. CUJ 3 demonstrates the re-planning mechanism (the retry loop runs but both attempts fail due to the hardcoded planner). CUJ 2 (Identity Shield) requires the full workshop.
+
+To test **CUJ 3**, change the `prompt` in `control_room.py` to:
 
 ```python
 prompt = "Order 1 unit of the discontinued XR-7000 Quantum Holographic Display"
 ```
 
-The search will return no results, the Control Room will detect "not found" in the report, dynamically create an `LlmAgent` re-planner, and retry with a broader objective.
+The hardcoded planner won't recognize this item and will return "Failed: Unknown item". The Control Room will detect the failure, dynamically create an `LlmAgent` re-planner, and retry with a broader objective. Because the planner only recognizes "Pixel 7", the retry will also fail -- but you will see the full re-planning loop in action. The final output will be `FAILED after 2 attempts`.
 
 ## Clean up
 
