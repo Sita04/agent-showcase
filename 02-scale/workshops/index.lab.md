@@ -119,12 +119,13 @@ mkdir scale-agents
 cd scale-agents
 ```
 
-Create a virtual environment and install the required packages:
+Install `uv` and use it to create a virtual environment and install the required packages:
 
 ```
-python3 -m venv venv
+pip install uv
+uv venv venv
 source venv/bin/activate
-pip install crewai 'litellm[google]' langgraph 'a2a-sdk>=0.3.25' 'a2a-server==0.1.5' httpx uvicorn google-adk
+uv pip install crewai 'litellm[google]' langgraph 'a2a-sdk>=0.3.25' 'a2a-server==0.1.5' httpx uvicorn google-adk 'google-cloud-storage>=3.0.0'
 ```
 
 Set your Google Cloud Project ID as an environment variable:
@@ -407,6 +408,8 @@ Starting Multi-Agent System...
 Objective handled: Restock 1 Pixel 7 phones for the Tokyo office. Result: ...PO-pixel-7-1...SUCCESS...
 ```
 
+> **Note:** You may see `[CrewAIEventsBus] Warning: Event pairing mismatch` messages in the output. These are cosmetic warnings from CrewAI's internal event tracking and can be safely ignored.
+
 > **Note:** The mock OMS has a **$100 budget limit**. Keep quantities small (under ~2 units) for the happy path to succeed. For example, 1 Pixel 7 at $50 passes the budget check, but 3 units at $150 will be rejected as "Over Budget".
 
 ### Three Critical User Journeys (CUJs)
@@ -534,7 +537,7 @@ python a2a_planner.py
 In another terminal, verify the Agent Card is served:
 
 ```bash
-curl http://localhost:8080/.well-known/agent.json | python3 -m json.tool
+curl http://localhost:8080/.well-known/agent-card.json | python3 -m json.tool
 ```
 
 You should see the agent card JSON. Keep this server running for the next step.
