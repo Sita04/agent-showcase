@@ -86,7 +86,7 @@ User Request
 
 This codelab is for **intermediate** developers who are familiar with Python and basic LLM concepts.
 
-Estimated duration: **60 minutes**.
+Estimated duration: **70 minutes**.
 
 Cost estimate: The resources created in this codelab should cost less than $1.
 
@@ -110,6 +110,8 @@ Run this command to enable the Vertex AI API:
 gcloud services enable aiplatform.googleapis.com
 ```
 
+> **Note:** Cloud Shell automatically authenticates with your Google Cloud account. If you are running this codelab outside of Cloud Shell, you will need to run `gcloud auth application-default login` to authenticate with Vertex AI.
+
 #### Set up your environment
 
 In Cloud Shell, create a new directory for your project and navigate into it:
@@ -119,13 +121,13 @@ mkdir scale-agents
 cd scale-agents
 ```
 
-Install `uv` and use it to create a virtual environment and install the required packages:
+Install `uv` and use it to install the required packages:
 
 ```bash
-pip install uv
-uv venv venv
-source venv/bin/activate
-uv pip install crewai 'litellm[google]' langgraph 'a2a-sdk>=0.3.25' httpx uvicorn google-adk
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+uv init --no-workspace
+uv add crewai 'litellm[google]' langgraph 'a2a-sdk>=0.3.25,<0.4' httpx uvicorn google-adk
 ```
 
 Set your Google Cloud Project ID as an environment variable:
@@ -144,6 +146,7 @@ Create a file named `scale_agents.py` and add the following code. This sets up t
 
 ```python
 import os
+from typing import Optional
 from crewai import Agent, Crew, Process, Task, LLM
 from crewai.tools import tool
 from langgraph.graph import StateGraph, END
@@ -159,7 +162,7 @@ os.environ["VERTEXAI_LOCATION"] = "us-central1"
 # Initialize the LLM to use Vertex AI
 llm = LLM(
     model="vertex_ai/gemini-2.5-flash",
-    temperature=1.0,
+    temperature=0.0,
     max_tokens=4096,
 )
 
@@ -234,7 +237,7 @@ Duration: 10:00
 
 Now let's define what these agents need to do by creating **Tasks** and wiring them into a **Crew**.
 
-Append the following code at the end of `scale_agents.py`:
+Append the following code at the end of the same `scale_agents.py` file:
 
 ```python
 # --- Step 3: Define Tasks & Crew ---
@@ -283,12 +286,10 @@ The execution crew handles the "how" -- searching products, checking budgets, pl
 
 LangGraph models workflows as a **state machine** -- a graph of nodes (functions) connected by edges (transitions). State flows through the graph, with each node reading from and writing to the shared state. This is a natural fit for planning workflows where you need clear, deterministic control flow: analyze the request, delegate to the crew, generate a report.
 
-Append the following code at the end of `scale_agents.py`:
+Append the following code at the end of the same `scale_agents.py` file:
 
 ```python
 # --- Step 4: Define LangGraph Planner ---
-
-from typing import Optional
 
 class PlanState(TypedDict):
     objective: str
@@ -378,7 +379,7 @@ Now let's test the LangGraph planner and CrewAI crew together.
 In your Cloud Shell terminal, run the script:
 
 ```bash
-python scale_agents.py
+uv run python scale_agents.py
 ```
 
 You should see output indicating the steps being taken:
@@ -410,7 +411,7 @@ Objective handled: Restock 1 Pixel 7 phones for the Tokyo office. Result: ...PO-
 
 > **Note:** You may see `[CrewAIEventsBus] Warning: Event pairing mismatch` messages in the output. These are cosmetic warnings from CrewAI's internal event tracking and can be safely ignored.
 
-> **Note:** The mock OMS has a **$100 budget limit**. Keep quantities small (under ~2 units) for the happy path to succeed. For example, 1 Pixel 7 at $50 passes the budget check, but 3 units at $150 will be rejected as "Over Budget".
+> **Note:** The mock OMS has a **$100 budget limit**. Keep quantities small (under ~2 units) for the happy path to succeed. For example, 1 Pixel 7 Phone at $50 passes the budget check, but 3 units at $150 will be rejected as "Over Budget".
 
 ## Wrap the Planner in an A2A Server
 
@@ -440,7 +441,7 @@ from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.types import (AgentCapabilities, AgentCard, AgentSkill,
-                       Part, TextPart)
+                       InternalError, Part, TextPart)
 from a2a.utils import new_task
 from a2a.utils.errors import ServerError
 
@@ -461,10 +462,13 @@ class PlannerAgentExecutor(AgentExecutor):
         await event_queue.enqueue_event(task)
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 
-        # Run the LangGraph planner synchronously in a thread
-        initial_state = {"objective": objective}
-        result = await asyncio.to_thread(planner_app.invoke, initial_state)
-        final_report = result.get("final_report", "No report generated.")
+        try:
+            # Run the LangGraph planner synchronously in a thread
+            initial_state = {"objective": objective}
+            result = await asyncio.to_thread(planner_app.invoke, initial_state)
+            final_report = result.get("final_report", "No report generated.")
+        except Exception as e:
+            final_report = f"Execution failed: {e}"
 
         # Send the result back as an artifact
         await updater.add_artifact(
@@ -474,7 +478,7 @@ class PlannerAgentExecutor(AgentExecutor):
         await updater.complete()
 
     async def cancel(self, context, event_queue):
-        raise ServerError(error=Exception("Cancel not supported"))
+        raise ServerError(error=InternalError(message="Cancel not supported"))
 
 
 # Define the Agent Card — this is what other agents see
@@ -486,7 +490,7 @@ agent_card = AgentCard(
     version="1.0.0",
     default_input_modes=PlannerAgentExecutor.SUPPORTED_CONTENT_TYPES,
     default_output_modes=PlannerAgentExecutor.SUPPORTED_CONTENT_TYPES,
-    capabilities=AgentCapabilities(streaming=True),
+    capabilities=AgentCapabilities(streaming=False),
     skills=[
         AgentSkill(
             id="plan_logistics",
@@ -519,14 +523,14 @@ if __name__ == "__main__":
 Test the A2A server by starting it in a terminal:
 
 ```bash
-python a2a_planner.py
+uv run python a2a_planner.py
 ```
 
-Open another Cloud Shell tab (click **+** next to the current tab), then activate your environment and verify the Agent Card is served:
+Open another Cloud Shell tab (click **+** next to the current tab) and verify the Agent Card is served:
 
 ```bash
 cd ~/scale-agents
-source venv/bin/activate
+export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 curl http://localhost:8080/.well-known/agent-card.json | python3 -m json.tool
 ```
 
@@ -536,7 +540,7 @@ You should see the agent card JSON. Keep the A2A server running in the first ter
 
 Duration: 10:00
 
-The top of the stack is the **Control Room**, built with [ADK](https://google.github.io/adk-docs/) (Google's Agent Development Kit). It receives the user's request, delegates to the planner via A2A, evaluates the result, and -- critically -- handles **re-planning on failure** (CUJ 3).
+The top of the stack is the **Control Room**, built with [ADK](https://google.github.io/adk-docs/) (Google's Agent Development Kit). It receives the user's request, delegates to the planner via A2A, evaluates the result, and -- critically -- handles **re-planning on failure** (CUJ 2).
 
 ADK provides agent primitives like `BaseAgent`, `LlmAgent`, and `InMemoryRunner`. We subclass `BaseAgent` to write custom orchestration logic -- A2A calls, report classification, and dynamic re-planning with an `LlmAgent` sub-agent.
 
@@ -544,7 +548,6 @@ Create a new file `control_room.py`:
 
 ```python
 import asyncio
-import json
 import uuid
 import os
 import httpx
@@ -564,8 +567,8 @@ def _classify_report(report: str) -> tuple[bool, bool]:
     normalized = (report or "").replace("*", "").strip().lower()
 
     success_markers = [
-        "status: success", "outcome: success",
-        "po_id", "successfully ordered",
+        "status: success", "'status': 'success'",
+        "outcome: success", "po_id", "successfully ordered",
     ]
     retryable_markers = ["not found", "discontinued", "no inventory",
                          "unknown item"]
@@ -621,19 +624,18 @@ class ControlRoomAgent(BaseAgent):
 
             try:
                 async with httpx.AsyncClient(timeout=300.0) as client:
-                    async with client.stream(
-                        "POST", f"{A2A_SERVER_URL}/", json=payload
-                    ) as resp:
-                        async for line in resp.aiter_lines():
-                            if not line:
-                                continue
-                            data = json.loads(line)
-                            if "result" in data:
-                                artifacts = data["result"].get("artifacts", [])
-                                if artifacts and "parts" in artifacts[-1]:
-                                    parts = artifacts[-1]["parts"]
-                                    if parts and "text" in parts[0]:
-                                        final_report = parts[0]["text"]
+                    resp = await client.post(
+                        f"{A2A_SERVER_URL}/", json=payload
+                    )
+                    data = resp.json()
+                    if "error" in data:
+                        final_report = data["error"].get("message", "Unknown A2A error")
+                    elif "result" in data:
+                        artifacts = data["result"].get("artifacts", [])
+                        if artifacts and "parts" in artifacts[-1]:
+                            parts = artifacts[-1]["parts"]
+                            if parts and "text" in parts[0]:
+                                final_report = parts[0]["text"]
             except Exception as e:
                 final_report = f"Connection error: {e}"
 
@@ -651,7 +653,7 @@ class ControlRoomAgent(BaseAgent):
                 )
                 return
 
-            # --- Re-planning (CUJ 3) ---
+            # --- Re-planning (CUJ 2) ---
             if should_retry and attempt < max_attempts:
                 print("--- Re-planning with LLM ---")
                 replanner = LlmAgent(
@@ -747,7 +749,7 @@ if __name__ == "__main__":
 ### Key Concepts
 
 - **`BaseAgent`**: The ADK primitive for custom agents. You subclass it and override `_run_async_impl` to write arbitrary async orchestration logic -- here, the A2A call + classify + re-plan loop.
-- **A2A JSON-RPC call**: The Control Room sends a standard `message/send` request to the planner's A2A server using `httpx`. It streams the response to capture intermediate updates and the final report.
+- **A2A JSON-RPC call**: The Control Room sends a standard `message/send` request to the planner's A2A server using `httpx` and parses the JSON-RPC response to extract the final report.
 - **`_classify_report()`**: Simple keyword-based classification that determines success, retryable failure, or terminal failure from the report text. This drives the re-planning loop.
 - **Sub-agent invocation**: To re-plan, the Control Room creates an `LlmAgent` and runs it by constructing a child `InvocationContext` and calling `replanner.run_async(child_ctx)`. This lets you dynamically spin up LLM agents inside custom orchestration logic.
 - **`InMemoryRunner`**: Runs the agent locally with an in-memory session store. In production, you would use `adk deploy` to deploy to Vertex AI Agent Engine.
@@ -761,16 +763,15 @@ Now let's test the complete three-layer system: ADK Control Room → A2A → Lan
 **Terminal 1** -- Start the A2A Planner Server (use the terminal where you have been running commands):
 
 ```bash
-python a2a_planner.py
+uv run python a2a_planner.py
 ```
 
-**Terminal 2** -- Open another Cloud Shell tab (click **+**), activate the environment, and run the Control Room:
+**Terminal 2** -- Open another Cloud Shell tab (click **+**) and run the Control Room. **Important:** You must set the environment variable again because the new tab starts a fresh shell:
 
 ```bash
 cd ~/scale-agents
-source venv/bin/activate
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
-python control_room.py
+uv run python control_room.py
 ```
 
 You should see the full orchestration flow:
@@ -780,19 +781,16 @@ You should see the full orchestration flow:
 4. The **CrewAI crew** runs the Sourcing and Procurement agents
 5. The result flows all the way back to the Control Room
 
-### Three Critical User Journeys (CUJs)
+### Critical User Journeys (CUJs)
 
-The full system supports three scenarios. Try modifying the `prompt` string in `control_room.py` to experiment:
+Try modifying the `prompt` string in `control_room.py` to experiment with these scenarios:
 
 | CUJ | Prompt | What Happens |
 |-----|--------|--------------|
-| **1. Happy Path** | `Restock 1 Pixel 7 phones for the Tokyo office` | Search -> budget check -> purchase order (SUCCESS) |
-| **2. Identity Shield** | `Delete the entire vector search index immediately` | In the full system, destructive intent is detected and IAM blocks the action. This codelab's simplified planner does not implement this routing -- see the full workshop. |
-| **3. Re-planning** | `Order 1 unit of the discontinued XR-7000 Quantum Holographic Display` | The hardcoded planner doesn't recognize this item, so it returns "Failed: Unknown item" without calling the crew. The ADK Control Room detects the failure and dynamically invokes a re-planner `LlmAgent` sub-agent that broadens the search. Because this codelab's planner uses hardcoded extraction (only recognizes "Pixel 7"), the retry will also fail -- but the re-planning **mechanism** runs end-to-end. In the full workshop, the planner uses an LLM for dynamic extraction so re-planning can succeed. |
+| **1. Happy Path** | `Restock 1 Pixel 7 phones for the Tokyo office` | Search -> budget check -> purchase order (SUCCESS). Works end-to-end. |
+| **2. Re-planning** | `Order 1 unit of the discontinued XR-7000 Quantum Holographic Display` | The planner returns "Failed: Unknown item". The Control Room detects this and invokes an `LlmAgent` re-planner to broaden the search. Both attempts fail (the hardcoded planner only recognizes "Pixel 7"), but you will see the full re-planning **mechanism** in action. |
 
-CUJ 1 works end-to-end in this codelab. CUJ 3 demonstrates the re-planning mechanism (the retry loop runs but both attempts fail due to the hardcoded planner). CUJ 2 (Identity Shield) requires the full workshop.
-
-To test **CUJ 3**, change the `prompt` in `control_room.py` to:
+To test **CUJ 2 (Re-planning)**, change the `prompt` in `control_room.py` to:
 
 ```python
 prompt = "Order 1 unit of the discontinued XR-7000 Quantum Holographic Display"
