@@ -13,8 +13,6 @@ layout: paginated
 
 In this codelab, you will learn how to build a multi-agent orchestration system using **CrewAI** and **LangGraph**. You will create a system where a high-level planner (LangGraph) delegates tasks to a specialized execution crew (CrewAI) to handle a retail inventory restock scenario.
 
-This is a "quick" version of the full workshop, focusing on the core concepts of tool definition, agent creation, and multi-framework orchestration.
-
 ### What is multi-agent orchestration?
 
 In a **multi-agent system**, multiple specialized AI agents collaborate to accomplish tasks that would be too complex for a single agent. Instead of one monolithic agent doing everything, you decompose the problem into roles -- a planner and an executor -- each with its own tools and expertise.
@@ -86,13 +84,13 @@ User Request
 
 This codelab is for **intermediate** developers who are familiar with Python and basic LLM concepts.
 
-Estimated duration: **70 minutes**.
+Estimated duration: **35 minutes**.
 
 Cost estimate: The resources created in this codelab should cost less than $1.
 
 ## Before you begin
 
-Duration: 05:00
+Duration: 03:00
 
 <<../shared/_credits_callout.md>>
 
@@ -126,19 +124,23 @@ Install `uv` and use it to install the required packages:
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
-uv init --no-workspace
-uv add crewai 'litellm[google]' langgraph 'a2a-sdk>=0.3.25,<0.4' httpx uvicorn google-adk
+uv init --no-workspace --no-readme
+rm main.py
+sed -i 's/requires-python = ">=3.12"/requires-python = ">=3.12,<3.14"/' pyproject.toml
+uv add crewai 'litellm[google]' langgraph 'a2a-sdk>=0.3.25,<0.4' httpx uvicorn 'google-adk>=1.0.0' --prerelease=allow
 ```
 
-Set your Google Cloud Project ID as an environment variable:
+Set the environment variables for Vertex AI:
 
 ```bash
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
+export GOOGLE_CLOUD_LOCATION=us-central1
+export GOOGLE_GENAI_USE_VERTEXAI=TRUE
 ```
 
 ## Define Tools and Agents
 
-Duration: 10:00
+Duration: 05:00
 
 In a multi-agent system, agents need tools to interact with the world, and specific roles to know what to do.
 
@@ -233,7 +235,7 @@ procurement_agent = Agent(
 
 ## Define Tasks and the Crew
 
-Duration: 10:00
+Duration: 05:00
 
 Now let's define what these agents need to do by creating **Tasks** and wiring them into a **Crew**.
 
@@ -280,7 +282,7 @@ def run_crew(item_description: str, quantity: int):
 
 ## Create the LangGraph Planner
 
-Duration: 10:00
+Duration: 05:00
 
 The execution crew handles the "how" -- searching products, checking budgets, placing orders. But who decides the "what"? That's the **Planning Agent**, built with **LangGraph**.
 
@@ -372,7 +374,7 @@ if __name__ == "__main__":
 
 ## Run the Planner and Crew
 
-Duration: 05:00
+Duration: 03:00
 
 Now let's test the LangGraph planner and CrewAI crew together.
 
@@ -411,11 +413,13 @@ Objective handled: Restock 1 Pixel 7 phones for the Tokyo office. Result: ...PO-
 
 > **Note:** You may see `[CrewAIEventsBus] Warning: Event pairing mismatch` messages in the output. These are cosmetic warnings from CrewAI's internal event tracking and can be safely ignored.
 
+> **Note:** CrewAI may display a message about tracing being disabled. This is informational and can be safely ignored.
+
 > **Note:** The mock OMS has a **$100 budget limit**. Keep quantities small (under ~2 units) for the happy path to succeed. For example, 1 Pixel 7 Phone at $50 passes the budget check, but 3 units at $150 will be rejected as "Over Budget".
 
 ## Wrap the Planner in an A2A Server
 
-Duration: 10:00
+Duration: 05:00
 
 The LangGraph planner works, but it's trapped inside a Python process. To make it callable by other agents -- potentially written in different frameworks or running on different machines -- we wrap it in an **A2A (Agent-to-Agent)** server.
 
@@ -530,7 +534,6 @@ Open another Cloud Shell tab (click **+** next to the current tab) and verify th
 
 ```bash
 cd ~/scale-agents
-export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 curl http://localhost:8080/.well-known/agent-card.json | python3 -m json.tool
 ```
 
@@ -538,7 +541,7 @@ You should see the agent card JSON. Keep the A2A server running in the first ter
 
 ## Build the ADK Control Room
 
-Duration: 10:00
+Duration: 05:00
 
 The top of the stack is the **Control Room**, built with [ADK](https://google.github.io/adk-docs/) (Google's Agent Development Kit). It receives the user's request, delegates to the planner via A2A, evaluates the result, and -- critically -- handles **re-planning on failure** (CUJ 2).
 
@@ -694,16 +697,17 @@ class ControlRoomAgent(BaseAgent):
                 print(f"New objective: {current_objective}")
                 continue
 
-            # Terminal failure
-            yield Event(
-                author=self.name,
-                invocation_id=ctx.invocation_id,
-                content=types.Content(
-                    role="model",
-                    parts=[types.Part.from_text(text=f"FAILED: {final_report}")]
-                ),
-            )
-            return
+            # Terminal failure (not retryable)
+            if not should_retry:
+                yield Event(
+                    author=self.name,
+                    invocation_id=ctx.invocation_id,
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part.from_text(text=f"FAILED: {final_report}")]
+                    ),
+                )
+                return
 
         # Max attempts exhausted
         yield Event(
@@ -756,7 +760,7 @@ if __name__ == "__main__":
 
 ## Run the Full Stack
 
-Duration: 05:00
+Duration: 03:00
 
 Now let's test the complete three-layer system: ADK Control Room → A2A → LangGraph Planner → CrewAI Crew.
 
@@ -766,11 +770,13 @@ Now let's test the complete three-layer system: ADK Control Room → A2A → Lan
 uv run python a2a_planner.py
 ```
 
-**Terminal 2** -- Open another Cloud Shell tab (click **+**) and run the Control Room. **Important:** You must set the environment variable again because the new tab starts a fresh shell:
+**Terminal 2** -- Use the second Cloud Shell tab you opened earlier (or click **+** for a new one) and run the Control Room. **Important:** Each Cloud Shell tab has its own shell session. You must set the project and environment variables again:
 
 ```bash
 cd ~/scale-agents
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
+export GOOGLE_CLOUD_LOCATION=us-central1
+export GOOGLE_GENAI_USE_VERTEXAI=TRUE
 uv run python control_room.py
 ```
 
@@ -796,11 +802,11 @@ To test **CUJ 2 (Re-planning)**, change the `prompt` in `control_room.py` to:
 prompt = "Order 1 unit of the discontinued XR-7000 Quantum Holographic Display"
 ```
 
-The hardcoded planner won't recognize this item and will return "Failed: Unknown item". The Control Room will detect the failure, dynamically create an `LlmAgent` re-planner, and retry with a broader objective. Because the planner only recognizes "Pixel 7", the retry will also fail -- but you will see the full re-planning loop in action. The final output will be `FAILED after 2 attempts`.
+The hardcoded planner won't recognize this item and will return "Failed: Unknown item". The Control Room will detect the failure, dynamically create an `LlmAgent` re-planner, and retry with a broader objective. Because the planner only recognizes "Pixel 7", the retry will also fail -- but you will see the full re-planning loop in action. The final output will be `FAILED after 2 attempts: ...`.
 
 ## Clean up
 
-Duration: 02:00
+Duration: 01:00
 
 To avoid ongoing charges to your Google Cloud account, you can delete the resources created during this codelab.
 
