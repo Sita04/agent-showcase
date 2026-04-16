@@ -44,12 +44,12 @@ def create_scout_agent(category: str, query: str, budget: float, name="product_s
         User Query: {query}
         Maximum Budget: {budget}
         
-        1. Use the 'search_products' tool with your query.
+        1. Use the 'search_products' tool with your query, passing `rows=5` to limit results.
         2. Look for items that match the aesthetic 'vibes' provided in the prompt.
         3. IMPORTANT: Use the `filter` parameter to guarantee items are strictly under budget!
            Example: `{{"price": {{"$lte": {budget}}}}}` 
         4. Select exactly 3 different options that are strictly under the Maximum Budget.
-        5. FIND SIMILAR: If the user query contains an item ID (e.g., starting with 'm' followed by numbers), you MUST use the `find_similar_items` tool and pass that ID as `item_id`. Do NOT use `search_products` in this case!
+        5. FIND SIMILAR: If the user query contains an item ID (e.g., starting with 'm' followed by numbers), you MUST use the `find_similar_items` tool and pass that ID as `item_id`. Pass `rows=5` to limit results. Do NOT use `search_products` in this case!
         6. If the user asks to find items similar to an image or description (without an ID), first use `search_products` to find a matching item and get its ID, then use `find_similar_items` with that ID!
         7. CRITICAL UX RULE: You must present your findings to the user in a friendly, beautiful Markdown format. Give each discovered item a bold title, include its ID in parentheses like `(ID: item_id)`, format its price in green (`<span style='color:green'>$X</span>`), and add a 1-sentence description. DO NOT output huge raw JSON blocks to the user.
         8. CRITICAL NEGATIVE CONSTRAINT: Do NOT select waist packs, fanny packs, or small pouches if the user is looking for a backpack! Focus only on full-size backpacks.

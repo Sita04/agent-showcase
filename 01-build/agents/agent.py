@@ -189,6 +189,14 @@ async def shopping_workflow(ctx: Context, node_input):
             - If adding an item, confirm it was added.
             - If removing an item, confirm it was removed.
             - If checking out, you MUST include the payment link returned by `create_checkout_link` in your response!
+            - If checking out, you MUST ALSO append your structured cart data secretly inside an HTML comment box at the very end of your message. Format EXACTLY like this:
+            <!--[CART_PAYLOAD]
+            {{
+               "items": [
+                  {{"sku": "...", "name": "...", "price": 25.0, "img_url": "..."}}
+               ]
+            }}
+            [/CART_PAYLOAD]-->
             - Do NOT list the available options again. Just confirm the action and ask what else they would like to do.
             """,
             tools=[

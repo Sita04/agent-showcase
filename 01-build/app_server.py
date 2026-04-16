@@ -150,13 +150,33 @@ app = FastAPI(title="Shopping Squad UI")
 
 # Persistent services for run isolation
 _session_service = InMemorySessionService()
-_runner = Runner(
-    agent=root_agent,
-    app_name="shopping_squad",
-    session_service=_session_service,
-    memory_service=InMemoryMemoryService(),
-    auto_create_session=True
-)
+
+USE_REMOTE_AGENT = os.environ.get("USE_REMOTE_AGENT", "false").lower() == "true"
+
+if USE_REMOTE_AGENT:
+    print("Using REMOTE Agent Engine...")
+    import vertexai
+    from vertexai import agent_engines
+    
+    vertexai.init(
+        project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+        location=os.environ.get("GOOGLE_CLOUD_LOCATION")
+    )
+    remote_agent_id = os.environ.get("REMOTE_AGENT_ID")
+    if not remote_agent_id:
+        raise ValueError("REMOTE_AGENT_ID environment variable is required when USE_REMOTE_AGENT is true")
+    _remote_agent = agent_engines.get(remote_agent_id)
+    _remote_sessions = {}
+    _runner = None
+else:
+    print("Using LOCAL Agent...")
+    _runner = Runner(
+        agent=root_agent,
+        app_name="shopping_squad",
+        session_service=_session_service,
+        memory_service=InMemoryMemoryService(),
+        auto_create_session=True
+    )
 
 @app.get("/api/health")
 async def health_check():
@@ -171,6 +191,8 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
     if not session_id:
         session_id = "demo_session_1"
     user_id = "demo_user_1"
+    
+    current_remote_session_id = _remote_sessions.get(session_id, session_id) if USE_REMOTE_AGENT else session_id
     
     parts = []
     
@@ -459,71 +481,145 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
             }
 
     reply_text = ""
-    # Run the workflow and collect outputs
     success_triggered = False
-    async for event in _runner.run_async(
-        session_id=session_id,
-        user_id=user_id,
-        new_message=new_message
-    ):
-        # Clean debug logs
-        print(f"\n[DEBUG] Event: {type(event)} | Node: {getattr(event, 'node_name', 'N/A')}")
-        
-        # Check event.output which holds the text for speaker agents
-        output_data = getattr(event, 'output', None)
-        node_name = getattr(event, 'node_name', '')
-        
-        if node_name.startswith("sys_speaker_success_"):
-            success_triggered = True
-            
-        if node_name.startswith("sys_speaker_") and isinstance(output_data, str):
-            reply_text += output_data
-        elif event.content and not node_name.startswith("planner_"):
-            # Fallback for other text events
-            for p in event.content.parts:
-                txt = p.get('text') if isinstance(p, dict) else getattr(p, 'text', '')
-                if txt:
-                    # Ignore system status messages
-                    if txt.strip().lower().startswith("status:"):
-                        continue
-                    reply_text += txt
-
-    # Read session state to see if sub-agents found anything
-    session = await _runner.session_service.get_session(
-        app_name="shopping_squad",
-        user_id=user_id,
-        session_id=session_id
-    )
     
-    # Only attach product cards if the search JUST completed successfully!
+    if USE_REMOTE_AGENT:
+        print(f"Querying remote agent with prompt: {full_prompt}")
+        try:
+            session_not_found = False
+            async for event in _remote_agent.async_stream_query(
+                user_id=user_id,
+                session_id=current_remote_session_id,
+                message=full_prompt
+            ):
+                print(f"[DEBUG REMOTE] Event: {event}")
+                
+                # Filter out planner events to avoid raw JSON in UI
+                node_path = event.get("node_info", {}).get("path", "")
+                if "planner_" in node_path:
+                    continue
+                if event.get("code") == 498 and "Session not found" in event.get("message", ""):
+                    session_not_found = True
+                    break
+                    
+                parts = event.get("content", {}).get("parts", [])
+                for part in parts:
+                    if "text" in part:
+                        reply_text += part["text"]
+                        
+            if session_not_found:
+                print(f"Session {session_id} not found on remote. Creating new session...")
+                remote_session = await _remote_agent.async_create_session(user_id=user_id)
+                new_session_id = remote_session["id"]
+                print(f"Created new remote session: {new_session_id}")
+                _remote_sessions[session_id] = new_session_id
+                
+                # Retry with new session ID
+                reply_text = ""
+                async for event in _remote_agent.async_stream_query(
+                    user_id=user_id,
+                    session_id=new_session_id,
+                    message=full_prompt
+                ):
+                    print(f"[DEBUG REMOTE RETRY] Event: {event}")
+                    
+                    # Filter out planner events to avoid raw JSON in UI
+                    node_path = event.get("node_info", {}).get("path", "")
+                    if "planner_" in node_path:
+                        continue
+                    parts = event.get("content", {}).get("parts", [])
+                    for part in parts:
+                        if "text" in part:
+                            reply_text += part["text"]
+                            
+            if "<!--[JSON_PAYLOAD]" in reply_text:
+                success_triggered = True
+        except Exception as e:
+            print(f"Error querying remote agent: {e}")
+            reply_text = f"Error querying remote agent: {e}"
+    else:
+        # Run the workflow locally and collect outputs
+        async for event in _runner.run_async(
+            session_id=session_id,
+            user_id=user_id,
+            new_message=new_message
+        ):
+            # Clean debug logs
+            print(f"\n[DEBUG] Event: {type(event)} | Node: {getattr(event, 'node_name', 'N/A')}")
+            
+            # Check event.output which holds the text for speaker agents
+            output_data = getattr(event, 'output', None)
+            node_name = getattr(event, 'node_name', '')
+            
+            if node_name.startswith("sys_speaker_success_"):
+                success_triggered = True
+                
+            if node_name.startswith("sys_speaker_") and isinstance(output_data, str):
+                reply_text += output_data
+            elif event.content and not node_name.startswith("planner_"):
+                # Fallback for other text events
+                for p in event.content.parts:
+                    txt = p.get('text') if isinstance(p, dict) else getattr(p, 'text', '')
+                    if txt:
+                        # Ignore system status messages
+                        if txt.strip().lower().startswith("status:"):
+                            continue
+                        reply_text += txt
+
     found_options = []
-    if success_triggered:
-        found_options = session.state.get("found_options", [])
-        if found_options:
-            print("\n--- 🔍 SEARCH RESULTS IDS 🔍 ---")
-            for group in found_options:
-                for item in group.get("options", []):
-                    print(f"ID: {item.get('id')} | Name: {item.get('name')}")
-            print("---------------------------------\n")
+    proposed_plan_ui = None
+    awaiting_approval = False
+    cart = []
+    
+    if USE_REMOTE_AGENT:
+        import json
+        match = re.search(r'<!--\[JSON_PAYLOAD\](.*?)\[/JSON_PAYLOAD\]-->', reply_text, re.DOTALL)
+        if match:
+            try:
+                json_data = json.loads(match.group(1).strip())
+                found_options = [json_data]
+            except Exception as e:
+                print(f"Error parsing JSON payload from remote agent: {e}")
+        
+        match_cart = re.search(r'<!--\[CART_PAYLOAD\](.*?)\[/CART_PAYLOAD\]-->', reply_text, re.DOTALL)
+        if match_cart:
+            try:
+                cart_data = json.loads(match_cart.group(1).strip())
+                cart = cart_data.get("items", [])
+            except Exception as e:
+                    print(f"Error parsing CART payload from remote agent: {e}")
+    else:
+        session = await _runner.session_service.get_session(
+            app_name="shopping_squad",
+            user_id=user_id,
+            session_id=session_id
+        )
+        
+        if success_triggered:
+            found_options = session.state.get("found_options", [])
+            if found_options:
+                print("\n--- 🔍 SEARCH RESULTS IDS 🔍 ---")
+                for group in found_options:
+                    for item in group.get("options", []):
+                        print(f"ID: {item.get('id')} | Name: {item.get('name')}")
+                print("---------------------------------\n")
+                
+        proposed_plan_ui = session.state.get("proposed_plan_ui")
+        awaiting_approval = session.state.get("awaiting_approval", False)
+        cart = session.state.get("agent_cart", [])
 
     response_data = {"status": "success"}
     
-    proposed_plan_ui = session.state.get("proposed_plan_ui")
-    
     if found_options:
-        # Use A2UI view to render products
         response_data["a2ui_data"] = render_search_ui(found_options, persona)
-    elif proposed_plan_ui and session.state.get("awaiting_approval"):
+    elif proposed_plan_ui and awaiting_approval:
         response_data["a2ui_data"] = proposed_plan_ui
     elif "stripe.com" in reply_text:
-        # Render checkout UI
-        cart = session.state.get("agent_cart", [])
         match = re.search(r'(https://[a-zA-Z0-9.-]*stripe\.com/[^\s]+)', reply_text)
         payment_link = match.group(1) if match else ""
         
         if cart and payment_link:
             response_data["a2ui_data"] = render_cart_ui(cart, payment_link)
-            # Replace reply_text with a cleaner message
             reply_text = "Your order is ready! Here is a summary and payment link:"
 
     if reply_text and not found_options:
