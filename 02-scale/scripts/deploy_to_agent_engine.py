@@ -327,11 +327,24 @@ def deploy_control_room_agent(args: argparse.Namespace) -> str:
 
     print("  Deploying agent to Agent Engine...")
     
+    planner_agent_url = os.environ.get("PLANNER_AGENT_URL", "").strip()
+    if not planner_agent_url:
+        print("ERROR: PLANNER_AGENT_URL must be set when deploying the Control Room Agent.")
+        print("Example: PLANNER_AGENT_URL=\"https://scale-planner-a2a-...run.app\" \\")
+        print("         CONTROL_ROOM_STATUS_URL=\"https://YOUR-DASHBOARD/api/push_status\" \\")
+        print("         uv run scripts/deploy_to_agent_engine.py --control-room-only")
+        sys.exit(1)
+
+    # Agent Engine rejects empty env values with
+    # `reasoning_engine.spec.deployment_spec.env[*].value: Required field is not set.`
+    # Only include keys whose values are non-empty.
     env_vars = {
-        'CONTROL_ROOM_STATUS_URL': CONTROL_ROOM_STATUS_URL,
-        'PLANNER_AGENT_URL': os.environ.get("PLANNER_AGENT_URL", ""),
+        k: v for k, v in {
+            'CONTROL_ROOM_STATUS_URL': CONTROL_ROOM_STATUS_URL,
+            'PLANNER_AGENT_URL': planner_agent_url,
+        }.items() if v
     }
-    
+
     remote_agent = agent_engines.create(
         app,
         display_name='Control Room Agent (CUJ 2)',
