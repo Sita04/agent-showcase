@@ -7,7 +7,21 @@ def render_search_ui(categories: list, persona: str = None) -> dict:
     cards = []
     for group in categories:
         category_name = group.get("category", "Unknown Category")
-        products = group.get("options", [])
+        products = group.get("options", [])[:3]  # Limit to top 3 items to fit in a row
+        
+        # Add category header card (no image, no button)
+        cards.append({
+            "Card": {
+                "children": [
+                    {
+                        "Text": {
+                            "text": f"Category: {category_name}",
+                            "style": "title"
+                        }
+                    }
+                ]
+            }
+        })
         
         for item in products:
             sku = item.get("id", "N/A")

@@ -482,6 +482,10 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
 
     reply_text = ""
     success_triggered = False
+    proposed_plan_ui = None
+    awaiting_approval = False
+    cart = []
+    found_options = []
     
     if USE_REMOTE_AGENT:
         print(f"Querying remote agent with prompt: {full_prompt}")
@@ -507,6 +511,15 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                     if "text" in part:
                         reply_text += part["text"]
                         
+                # Extract state delta for A2UI
+                state_delta = event.get("actions", {}).get("state_delta", {})
+                if "proposed_plan_ui" in state_delta:
+                    proposed_plan_ui = state_delta["proposed_plan_ui"]
+                if "awaiting_approval" in state_delta:
+                    awaiting_approval = state_delta["awaiting_approval"]
+                if "found_options" in state_delta:
+                    found_options = state_delta["found_options"]
+                        
             if session_not_found:
                 print(f"Session {session_id} not found on remote. Creating new session...")
                 remote_session = await _remote_agent.async_create_session(user_id=user_id)
@@ -531,6 +544,15 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                     for part in parts:
                         if "text" in part:
                             reply_text += part["text"]
+                            
+                    # Extract state delta for A2UI
+                    state_delta = event.get("actions", {}).get("state_delta", {})
+                    if "proposed_plan_ui" in state_delta:
+                        proposed_plan_ui = state_delta["proposed_plan_ui"]
+                    if "awaiting_approval" in state_delta:
+                        awaiting_approval = state_delta["awaiting_approval"]
+                    if "found_options" in state_delta:
+                        found_options = state_delta["found_options"]
                             
             if "<!--[JSON_PAYLOAD]" in reply_text:
                 success_triggered = True
@@ -566,28 +588,27 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                             continue
                         reply_text += txt
 
-    found_options = []
-    proposed_plan_ui = None
-    awaiting_approval = False
-    cart = []
+
     
     if USE_REMOTE_AGENT:
-        import json
-        match = re.search(r'<!--\[JSON_PAYLOAD\](.*?)\[/JSON_PAYLOAD\]-->', reply_text, re.DOTALL)
-        if match:
-            try:
-                json_data = json.loads(match.group(1).strip())
-                found_options = [json_data]
-            except Exception as e:
-                print(f"Error parsing JSON payload from remote agent: {e}")
+        if not found_options:
+            import json
+            matches = re.finditer(r'<!--\[JSON_PAYLOAD\](.*?)\[/JSON_PAYLOAD\]-->', reply_text, re.DOTALL)
+            for match in matches:
+                try:
+                    json_data = json.loads(match.group(1).strip())
+                    found_options.append(json_data)
+                except Exception as e:
+                    print(f"Error parsing JSON payload from remote agent: {e}")
         
         match_cart = re.search(r'<!--\[CART_PAYLOAD\](.*?)\[/CART_PAYLOAD\]-->', reply_text, re.DOTALL)
         if match_cart:
             try:
+                import json
                 cart_data = json.loads(match_cart.group(1).strip())
                 cart = cart_data.get("items", [])
             except Exception as e:
-                    print(f"Error parsing CART payload from remote agent: {e}")
+                print(f"Error parsing CART payload from remote agent: {e}")
     else:
         session = await _runner.session_service.get_session(
             app_name="shopping_squad",

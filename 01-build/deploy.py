@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # Read .env from agents folder
 dotenv_path = os.path.join("agents", ".env")
 if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path)
+    load_dotenv(dotenv_path, override=True)
 
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
 BUCKET = os.environ.get("GCS_BUCKET")

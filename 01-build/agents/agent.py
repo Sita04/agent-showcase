@@ -138,6 +138,8 @@ async def shopping_workflow(ctx: Context, node_input):
             if not cart:
                 return "Cart is empty!"
                 
+            print(f"DEBUG: Creating Stripe session with cart: {cart}")
+                
             line_items = []
             for item in cart:
                 line_items.append({
@@ -161,7 +163,7 @@ async def shopping_workflow(ctx: Context, node_input):
                     cancel_url=f"{origin}/?canceled=true",
                 )
                 ctx.state["awaiting_selection"] = False # Finalize the session
-                return f"Here is your payment link: {session.url}"
+                return f"Here is your payment link: [Complete Purchase]({session.url})"
             except Exception as e:
                 return f"Error creating payment link: {str(e)}"
 

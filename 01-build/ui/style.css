@@ -391,6 +391,7 @@ input[type="text"]:focus {
     grid-template-columns: repeat(3, 1fr) !important;
     gap: 1.2rem;
     margin-top: 0.5rem;
+    justify-items: center;
 }
 
 .proposed-plan-list {
@@ -404,15 +405,23 @@ input[type="text"]:focus {
     grid-column: 1 / -1;
 }
 
+.plan-banner, .summary-card {
+    max-width: none !important;
+}
+
 .product-card {
-    background: #ffffff;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
     border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+    padding: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
     transition: all 0.3s ease;
     display: flex;
     flex-direction: column;
-    border: 1px solid rgba(0,0,0,0.03);
+    gap: 0.75rem;
+    max-width: 200px;
+    width: 100%;
 }
 
 .product-card.horizontal-card {
@@ -442,9 +451,10 @@ input[type="text"]:focus {
 
 .product-img-wrapper {
     width: 100%;
-    height: 450px;
+    aspect-ratio: 1 / 1;
     overflow: hidden;
     background: #f8f9fa;
+    border-radius: 12px;
 }
 
 .product-img-wrapper img {

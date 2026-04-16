@@ -8,6 +8,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const selectedSkus = new Set();
     let sessionId = Math.random().toString(36).substring(2, 15);
     
+    const PLACEHOLDER_IMG = "data:image/svg+xml;utf8," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'><rect width='200' height='200' fill='#eeeeee'/><text x='50%' y='50%' font-family='sans-serif' font-size='16' fill='#888888' text-anchor='middle' dominant-baseline='middle'>Image Not Available</text></svg>");
+
     // Clear cart on refresh
     fetch('/api/clear-cart').catch(err => console.error('Error clearing cart:', err));
 
@@ -184,11 +186,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 card.className = 'product-card';
                 
                 // Fallback image if missing or broken
-                const imgSrc = item.img_url || 'https://via.placeholder.com/300x200?text=No+Image';
+                const imgSrc = item.img_url || PLACEHOLDER_IMG;
                 
                 card.innerHTML = `
                     <div class="product-img-wrapper">
-                        <img src="${imgSrc}" alt="${item.name}" onerror="this.src='https://via.placeholder.com/300x200?text=Image+Load+Failed'">
+                        <img src="${imgSrc}" alt="${item.name}" onerror="this.src='${PLACEHOLDER_IMG}'">
                     </div>
                     <div class="product-info">
                         <div class="product-name" title="${item.name}">${item.name}</div>
@@ -299,7 +301,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             card.children.forEach(child => {
                 if (child.Image) {
                     imgSrc = child.Image.src;
-                    imgHtml = `<div class="product-img-wrapper"><img src="${imgSrc}" alt="${child.Image.alt}"></div>`;
+                    const safeImgSrc = imgSrc || PLACEHOLDER_IMG;
+                    imgHtml = `<div class="product-img-wrapper"><img src="${safeImgSrc}" alt="${child.Image.alt}" onerror="this.src='${PLACEHOLDER_IMG}'"></div>`;
                 } else if (child.Text) {
                     if (child.Text.style === 'title') {
                         name = child.Text.text;
@@ -348,7 +351,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     cardDiv.style.borderLeft = '4px solid #007bff';
                 } else if (surfaceId === 'cart-summary') {
                     if (imgSrc) {
-                        cardDiv.className = 'product-card horizontal-card';
+                        cardDiv.className = 'product-card';
                     } else {
                         cardDiv.className = 'product-card summary-card';
                         cardDiv.style.gridColumn = '1 / -1';
