@@ -11,7 +11,7 @@ layout: paginated
 
 ## Introduction
 
-In this codelab, you will learn how to build a multi-agent orchestration system using **CrewAI** and **LangGraph**. You will create a system where a high-level planner (LangGraph) delegates tasks to a specialized execution crew (CrewAI) to handle a retail inventory restock scenario.
+In this codelab, you will learn how to build a multi-agent orchestration system using [CrewAI](https://www.crewai.com/), [LangGraph](https://langchain-ai.github.io/langgraph/), [A2A protocol](https://google.github.io/A2A/), and [ADK](https://google.github.io/adk-docs/) (Agent Development Kit). You will create a system where an ADK control room delegates planning to a LangGraph planner, which dispatches tasks to a CrewAI execution crew -- all connected via A2A -- to handle a retail inventory restock scenario.
 
 ### What is multi-agent orchestration?
 
