@@ -240,7 +240,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                                                             "command": "send_message",
                                                             "params": {
                                                                 "message": "Create a plan for mens bicycle accessories. Budget: $300",
-                                                                "display_message": "Bicycle Gear ($300)"
+                                                                "display_message": "I want to gear up for my bicycle commute and my budget is $300"
                                                             }
                                                         }
                                                     }
@@ -264,7 +264,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                                                             "command": "send_message",
                                                             "params": {
                                                                 "message": "Durable gear for a hiking expedition. Budget: $500",
-                                                                "display_message": "Expedition Prep ($500)"
+                                                                "display_message": "I need to prep for my next big hiking expedition, budget is $500"
                                                             }
                                                         }
                                                     }
@@ -327,7 +327,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                                                             "command": "send_message",
                                                             "params": {
                                                                 "message": "Supplies for my art studio. Budget: $150",
-                                                                "display_message": "Art Studio Supplies ($150)"
+                                                                "display_message": "I'm setting up my dream art studio and my budget is $150"
                                                             }
                                                         }
                                                     }
@@ -341,17 +341,17 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                                                 {
                                                     "Image": {
                                                         "src": "/images/aesthetic_tech.png",
-                                                        "alt": "Aesthetic Tech"
+                                                        "alt": "Trendy Desk Accessories"
                                                     }
                                                 },
                                                 {
                                                     "Button": {
-                                                        "child": {"Text": {"text": "Aesthetic Tech ($200)"}},
+                                                        "child": {"Text": {"text": "Trendy Desk Accessories ($200)"}},
                                                         "action": {
                                                             "command": "send_message",
                                                             "params": {
                                                                 "message": "Desk accessories and tech. Budget: $200",
-                                                                "display_message": "Aesthetic Tech ($200)"
+                                                                "display_message": "I want to spruce up my desk with some aesthetic tech and my budget is $200"
                                                             }
                                                         }
                                                     }
@@ -390,7 +390,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                                                             "command": "send_message",
                                                             "params": {
                                                                 "message": "Business casual capsule wardrobe. Budget: $800",
-                                                                "display_message": "Business Casual Wardrobe ($800)"
+                                                                "display_message": "I need to build a high-quality business casual wardrobe and my budget is $800"
                                                             }
                                                         }
                                                     }
@@ -414,7 +414,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                                                             "command": "send_message",
                                                             "params": {
                                                                 "message": "Elegant dress for a corporate gala. Budget: $300",
-                                                                "display_message": "Corporate Gala ($300)"
+                                                                "display_message": "I'm looking for an elegant outfit for a corporate gala, my budget is $300"
                                                             }
                                                         }
                                                     }

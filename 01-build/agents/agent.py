@@ -43,8 +43,15 @@ load_dotenv(dotenv_path=env_path)
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
-# Global cart for demo purposes to avoid state persistence issues
-GLOBAL_CART = []
+import vertexai
+project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("PROJECT_ID")
+location = os.environ.get("GOOGLE_CLOUD_LOCATION") or os.environ.get("LOCATION")
+
+if project_id:
+    print(f"Initializing Vertex AI in agent with project={project_id}, location={location}")
+    vertexai.init(project=project_id, location=location)
+
+
 
 
 def _extract_text(input_val):
@@ -94,6 +101,7 @@ def _parse_plan_from_state(ctx: Context, original_plan) -> ShoppingPlan | None:
 
 @node(rerun_on_resume=True)
 async def shopping_workflow(ctx: Context, node_input):
+    import re
     max_attempts = 2
     attempt = 0
     run_id = uuid.uuid4().hex[:6]
@@ -107,31 +115,31 @@ async def shopping_workflow(ctx: Context, node_input):
         
         def add_to_agent_cart(sku: str, name: str, price: float, img_url: str = ""):
             """Add an item to the agent's cart state. Call this when the user selects an item to purchase."""
-            global GLOBAL_CART
-            if not any(item['sku'] == sku for item in GLOBAL_CART):
-                GLOBAL_CART.append({"sku": sku, "name": name, "price": price, "img_url": img_url})
-                ctx.state["agent_cart"] = GLOBAL_CART
+            cart = list(ctx.state.get("agent_cart", []))
+            if not any(item['sku'] == sku for item in cart):
+                cart.append({"sku": sku, "name": name, "price": price, "img_url": img_url})
+                ctx.state["agent_cart"] = cart
                 return f"Added {name} to your order."
             return f"{name} is already in your order."
             
         def remove_from_agent_cart(sku: str):
             """Remove an item from the agent's cart state. Call this when the user unselects an item."""
-            global GLOBAL_CART
-            initial_len = len(GLOBAL_CART)
-            GLOBAL_CART = [item for item in GLOBAL_CART if item['sku'] != sku]
-            ctx.state["agent_cart"] = GLOBAL_CART
-            if len(GLOBAL_CART) < initial_len:
+            cart = list(ctx.state.get("agent_cart", []))
+            initial_len = len(cart)
+            cart = [item for item in cart if item['sku'] != sku]
+            ctx.state["agent_cart"] = cart
+            if len(cart) < initial_len:
                 return "Removed from your order."
             return "Item not found in your order."
             
         def create_checkout_link() -> str:
             """Creates a real Stripe checkout link for the items in the cart. Call this when the user wants to checkout."""
-            global GLOBAL_CART
-            if not GLOBAL_CART:
+            cart = ctx.state.get("agent_cart", [])
+            if not cart:
                 return "Cart is empty!"
                 
             line_items = []
-            for item in GLOBAL_CART:
+            for item in cart:
                 line_items.append({
                     "price_data": {
                         "currency": "usd",
@@ -157,7 +165,7 @@ async def shopping_workflow(ctx: Context, node_input):
             except Exception as e:
                 return f"Error creating payment link: {str(e)}"
 
-        cart_items = GLOBAL_CART
+        cart_items = ctx.state.get("agent_cart", [])
         
         selection_agent = LlmAgent(
             name=f"sys_speaker_selection_{run_id}_{uuid.uuid4().hex[:4]}",
@@ -369,9 +377,4 @@ async def shopping_workflow(ctx: Context, node_input):
 root_agent = Workflow(
     name="shopping_squad_root",
     edges=[("START", shopping_workflow)], # Workflow starts here
-)
-
-app = App(
-    name="shopping_squad_app",
-    root_agent=root_agent
 )
