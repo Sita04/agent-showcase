@@ -764,13 +764,7 @@ Duration: 03:00
 
 Now let's test the complete three-layer system: ADK Control Room → A2A → LangGraph Planner → CrewAI Crew.
 
-**Terminal 1** -- Start the A2A Planner Server (use the terminal where you have been running commands):
-
-```bash
-uv run python a2a_planner.py
-```
-
-**Terminal 2** -- Use the second Cloud Shell tab you opened earlier (or click **+** for a new one) and run the Control Room. **Important:** Each Cloud Shell tab has its own shell session. You must set the project and environment variables again:
+Use the second Cloud Shell tab you opened earlier (or click **+** for a new one) and run the Control Room. **Important:** Each Cloud Shell tab has its own shell session. You must set the project and environment variables again:
 
 ```bash
 cd ~/scale-agents
@@ -809,13 +803,7 @@ The hardcoded planner won't recognize this item and will return "Failed: Unknown
 Duration: 01:00
 
 To avoid ongoing charges to your Google Cloud account, you can delete the resources created during this codelab.
-
-If you created a dedicated project for this codelab, you can delete the project:
-```bash
-gcloud projects delete $GOOGLE_CLOUD_PROJECT
-```
-
-Otherwise, since we only enabled the Vertex AI API and used Cloud Shell (which is free), there are no specific resources to delete. You can simply remove the directory you created:
+You can simply remove the directory you created:
 ```bash
 cd ..
 rm -rf scale-agents
