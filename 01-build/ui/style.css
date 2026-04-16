@@ -473,6 +473,7 @@ input[type="text"]:focus {
     margin-bottom: 0.5rem;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     height: 2.4rem; /* Fixed height for name */
@@ -756,10 +757,9 @@ input[type="text"]:focus {
     font-weight: 600;
     font-size: 0.9rem;
     margin-bottom: 0.2rem;
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .cart-item-price {
