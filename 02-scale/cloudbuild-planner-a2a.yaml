@@ -6,6 +6,8 @@ steps:
       - Dockerfile.planner-a2a
       - -t
       - $_IMAGE_URI
+      - --build-arg
+      - UV_EXTRA_INDEX_URL=$_UV_EXTRA_INDEX_URL
       - .
 
 images:

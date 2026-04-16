@@ -60,8 +60,8 @@ def _push_to_dashboard(msg: str, name: str = "execution", role: str = "planner")
             data={"name": name, "text": msg, "role": role},
             timeout=1.0,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to push status to dashboard: {e}")
 
 
 class PlannerNodes:
@@ -180,13 +180,15 @@ class PlannerNodes:
 
         try:
             if self.crew_engine is not None:
-                # Call the Execution Crew on Agent Engine
+                # Call the Execution Crew on Agent Engine using ADK 2.0 session API
                 input_payload = json.dumps({
                     "task_description": task_description,
                     "budget": budget,
                     "quantity": quantity,
                 })
-                result = self.crew_engine.query(input=input_payload)
+                
+                _push_to_dashboard("Calling Execution Crew (non-streaming)...", "system")
+                result = await asyncio.to_thread(self.crew_engine.query, input=input_payload)
             else:
                 # Fallback: run CrewAI in-process (local dev)
                 try:
