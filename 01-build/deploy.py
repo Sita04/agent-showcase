@@ -41,6 +41,7 @@ remote_agent = agent_engines.create(
     requirements=[
         "google-adk==2.0.0a3",
         "stripe>=15.0.1",
+        "python-dotenv>=1.2.2",
     ],
     extra_packages=["./agents"],
     env_vars={
