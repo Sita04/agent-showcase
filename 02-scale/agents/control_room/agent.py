@@ -20,7 +20,7 @@ dashboard_queue = asyncio.Queue()
 async def emit_status(name: str, text: str, role: str = "control_room"):
     # Local queue for in-process dashboard (if running locally)
     await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
-    
+
     # Remote push for Agent Engine deployment
     if CONTROL_ROOM_STATUS_URL:
         try:
@@ -30,8 +30,43 @@ async def emit_status(name: str, text: str, role: str = "control_room"):
             print(f"[Control Room] Failed to push status to {CONTROL_ROOM_STATUS_URL}: {e}")
 
 
+async def emit_final_report(status: str, report: str):
+    """Push the final procurement report to the dashboard.
+
+    The local runner path surfaces the orchestrator's return dict via
+    ``event.output`` and the UI renders it as a "result" bubble. When the
+    Control Room runs on Agent Engine, ``async_stream_query`` does not expose
+    that return value, so the side-channel must push it explicitly.
+    """
+    payload = {
+        "type": "adk_event",
+        "event_type": "WorkflowComplete",
+        "node_name": "control_room_orchestrator",
+        "output": {"status": status, "report": report},
+    }
+    await dashboard_queue.put(payload)
+    if CONTROL_ROOM_STATUS_URL:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                # Reuse the status endpoint with a marker role; the dashboard
+                # server translates this into an adk_event for the UI.
+                await client.post(
+                    CONTROL_ROOM_STATUS_URL,
+                    data={"name": "final_report", "text": report, "role": f"final_report:{status}"},
+                )
+        except Exception as e:
+            print(f"[Control Room] Failed to push final report to {CONTROL_ROOM_STATUS_URL}: {e}")
+
+
 def _classify_report(report: str) -> tuple[bool, bool]:
-    """Return ``(is_success, should_retry)`` for a planner/executor report."""
+    """Return ``(is_success, should_retry)`` for a planner/executor report.
+
+    Markers are split into three tiers because some failure phrases (e.g.
+    "Status: FAILURE") show up in both terminal and retryable scenarios. We
+    check specific signals before generic ones so a report like
+    "Status: FAILURE — item does not match the requested ..." routes to the
+    re-planner instead of being short-circuited as terminal.
+    """
     # Strip markdown bold/italic markers so "**Outcome:** SUCCESS" matches
     normalized = (report or "").replace("*", "").strip().lower()
 
@@ -43,39 +78,51 @@ def _classify_report(report: str) -> tuple[bool, bool]:
         "po_id",
         "purchase order id: po-",
     ]
-    retryable_failure_markers = [
+    # Specific terminal: budget/system/policy hits — replanning won't help.
+    specific_terminal_markers = [
+        "over budget",
+        "failed_precondition",
+        "internal system error",
+        "error when invoking agent engine",
+    ]
+    # Specific retryable: a re-planned, broader query has a real chance.
+    specific_retryable_markers = [
         "not found",
         "discontinued",
         "no inventory",
+        "does not match",
+        "do not match",
+        "did not match",
+        "wrong item",
+        "incorrect item",
         "a2a server error",
         "connection error",
+        "connection issue",
         "internal server error",
         "no report returned",
     ]
-    terminal_failure_markers = [
+    # Generic failure phrasing — terminal only when no specific retryable hint.
+    generic_failure_markers = [
         "status: failed",
         "status: failure",
         "outcome: failed",
+        "outcome: failure",
         "reason for failure",
-        "failed_precondition",
-        "internal system error",
-        "connection issue",
-        "over budget",
         "purchase order id: n/a",
-        "purchase order id:** n/a",
         "purchase order id: not issued",
         "not issued",
         "procurement failed",
         "could not be completed",
         "could not be processed",
         "failed due to",
-        "error when invoking agent engine",
     ]
 
-    if any(marker in normalized for marker in terminal_failure_markers):
+    if any(marker in normalized for marker in specific_terminal_markers):
         return False, False
-    if any(marker in normalized for marker in retryable_failure_markers):
+    if any(marker in normalized for marker in specific_retryable_markers):
         return False, True
+    if any(marker in normalized for marker in generic_failure_markers):
+        return False, False
     if any(marker in normalized for marker in success_markers):
         return True, False
     # Bias toward surfacing unknown outcomes as failures rather than false success.
@@ -190,17 +237,27 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                                     await emit_status("system", "Received the procurement report. Evaluating the outcome...")
                                     task = data["result"]
                                     artifacts = task.get("artifacts", [])
+                                    # CUJ 2: planner emits a distinct artifact name for
+                                    # security blocks. Detect blocks by artifact name
+                                    # rather than substring-matching report text, which
+                                    # is spoofable via prompt injection.
+                                    security_artifact = next(
+                                        (a for a in artifacts if a.get("name") == "security_incident_report"),
+                                        None,
+                                    )
+                                    if security_artifact:
+                                        sec_parts = security_artifact.get("parts", [])
+                                        if sec_parts and "text" in sec_parts[0]:
+                                            final_report = sec_parts[0]["text"]
+                                        print(f"\n🛡️ [Control Room] Security block detected. Not retrying.")
+                                        ctx.state["final_outcome"] = f"SECURITY BLOCK: {final_report}"
+                                        await emit_final_report("Blocked", final_report)
+                                        return {"status": "Blocked", "report": final_report}
+
                                     if artifacts and "parts" in artifacts[-1]:
                                         parts = artifacts[-1]["parts"]
                                         if len(parts) > 0 and "text" in parts[0]:
                                             final_report = parts[0]["text"]
-                                    
-                                    # CUJ 2: Detect security blocks (terminal — no replanning)
-                                    security_keywords = ["permission denied", "security violation", "blocked by iam", "identity shield"]
-                                    if any(kw in final_report.lower() for kw in security_keywords):
-                                        print(f"\n🛡️ [Control Room] Security block detected. Not retrying.")
-                                        ctx.state["final_outcome"] = f"SECURITY BLOCK: {final_report}"
-                                        return {"status": "Blocked", "report": final_report}
 
                                     is_success, should_retry = _classify_report(final_report)
                             except Exception as e:
@@ -215,6 +272,7 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
         if is_success:
             print(f"\n🎉 [Control Room] Workflow completed successfully:\n{final_report}")
             ctx.state["final_outcome"] = final_report
+            await emit_final_report("Success", final_report)
             return {"status": "Success", "report": final_report}
         
         # Extract a short reason for the status line — avoid dumping the full
@@ -251,10 +309,12 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
 
         print(f"\n❌ [Control Room] Fatal Error: Terminal failure.")
         ctx.state["final_outcome"] = final_report
+        await emit_final_report("Failed", final_report)
         return {"status": "Failed", "report": final_report}
 
     print(f"\n❌ [Control Room] Fatal Error: Max attempts reached.")
     ctx.state["final_outcome"] = f"Failed after {max_attempts} attempts. Last error: {final_report}"
+    await emit_final_report("Failed", final_report)
     return {"status": "Failed", "report": final_report}
 
 # Define the workflow graph

@@ -82,7 +82,14 @@ class PlannerNodes:
         self.on_update = on_update
 
     def _has_project_permission(self, project_id: str, permission: str) -> bool:
-        """Check whether the current runtime identity has a project-level permission."""
+        """Check whether the current runtime identity has a project-level permission.
+
+        Returns True if the IAM probe explicitly confirms the permission.
+        Raises on transient/unexpected errors so the caller can distinguish a
+        real "permission missing" outcome from a network hiccup. Without this
+        distinction, a flaky probe would always look like a successful security
+        block, hiding genuine misconfiguration.
+        """
         client = resourcemanager_v3.ProjectsClient()
         response = client.test_iam_permissions(
             resource=f"projects/{project_id}",
@@ -149,11 +156,18 @@ class PlannerNodes:
 
         def schedule_execution_update(msg: str, name: str = "execution") -> None:
             _push_to_dashboard(msg, name=name, role="executor")
-            if self.on_update:
-                asyncio.run_coroutine_threadsafe(
-                    self.on_update(msg),
-                    loop,
-                )
+            if not self.on_update:
+                return
+            # Heartbeat / step callbacks fire from worker threads. The captured
+            # loop may be closed by the time a late callback arrives (e.g. crew
+            # crashed and the parent task already returned). Guard so a stray
+            # callback can't crash the worker thread or hang on a dead loop.
+            if loop.is_closed() or not loop.is_running():
+                return
+            try:
+                asyncio.run_coroutine_threadsafe(self.on_update(msg), loop)
+            except RuntimeError as e:
+                logger.debug(f"Skipping cross-thread update; loop unavailable: {e}")
 
         # Real-time Thought Stream Integration
         # Intercept CrewAI logs and pipe them to the dashboard
@@ -318,16 +332,31 @@ class PlannerNodes:
         index_name = f"projects/{project}/locations/{location}/indexes/0000000000000000000"
         permission = "aiplatform.indexes.delete"
 
+        # Probe IAM up-front when possible; fall through to the real call on
+        # transient probe failure so the IAM service itself is the source of
+        # truth (avoids a flaky ProjectsClient producing a false security block).
+        probe_failed = False
         try:
-            if not self._has_project_permission(project, permission):
-                return {
-                    "current_step": "security_check",
-                    "security_violation": (
-                        "Blocked by Identity Shield: "
-                        f"Missing IAM permission {permission}"
-                    ),
-                }
+            permitted = self._has_project_permission(project, permission)
+        except (PermissionDenied, Forbidden):
+            permitted = False
+        except Exception as e:
+            logger.warning(
+                f"IAM permission probe failed transiently; falling through to live call: {e}"
+            )
+            probe_failed = True
+            permitted = True  # Don't short-circuit on probe failure.
 
+        if not permitted and not probe_failed:
+            return {
+                "current_step": "security_check",
+                "security_violation": (
+                    "Blocked by Identity Shield: "
+                    f"Missing IAM permission {permission}"
+                ),
+            }
+
+        try:
             client = aiplatform_v1.IndexServiceClient(
                 client_options={"api_endpoint": f"{location}-aiplatform.googleapis.com"}
             )

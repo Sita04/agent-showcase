@@ -120,10 +120,16 @@ class LogisticsExecutionCrew:
                 start = time.monotonic()
                 for delay, msg in heartbeat_messages:
                     remaining = delay - (time.monotonic() - start)
-                    if remaining > 0 and not heartbeat_stop.wait(remaining):
-                        _status(msg)
-                    if heartbeat_stop.is_set():
+                    if remaining > 0:
+                        # wait() returns True if Event was set during the wait
+                        # (i.e. the real callback fired) — stop emitting.
+                        if heartbeat_stop.wait(remaining):
+                            return
+                    elif heartbeat_stop.is_set():
                         return
+                    # Either we slept the remaining time without being stopped,
+                    # or we're already past schedule — emit the message either way.
+                    _status(msg)
 
             heartbeat_thread = threading.Thread(target=_heartbeat, daemon=True)
 

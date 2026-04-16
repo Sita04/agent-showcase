@@ -91,7 +91,7 @@ A malicious prompt attempts to trick the **Planning Agent** into deleting the ve
 
 ### CUJ 3: Cross-Framework Error Handling & Re-planning
 
-The **Planning Agent** requests a discontinued item (e.g., "XR-7000 Quantum Holographic Display"). The **Execution Agent** fails to find it in the vector store, catches the error, and reports back a structured failure. The **Control Room** triggers the **Re-Planner Agent**, which broadens the objective, and the system retries automatically with the revised query.
+The **Planning Agent** requests a discontinued item (e.g., "XR-7000 Quantum Holographic Display"). The **Execution Agent** fails to find it in the vector store, catches the error, and reports back a structured failure. The **Control Room** classifies the failure: **retryable** outcomes (wrong-item, not-found, no-inventory, transient errors) trigger the **Re-Planner Agent**, which broadens the objective and the system retries automatically; **terminal** outcomes (over-budget, IAM denied) short-circuit to a final failure report without a retry, since re-planning the same constraint won't help.
 
 ---
 
@@ -156,12 +156,25 @@ uv run agents/planner/a2a_server.py
 ```bash
 export PYTHONPATH=.
 export PORT=8000
-# Optional: Connect to remote Control Room Agent on Agent Engine
+# Force the in-process ADK Control Room (skip deployment_metadata.json
+# and any remote Agent Engine wiring). Use this for fully local runs.
+export CONTROL_ROOM_AGENT_ENGINE_ID=local
+# Or, to connect to the remote Control Room on Agent Engine:
 # export CONTROL_ROOM_AGENT_ENGINE_ID="projects/.../reasoningEngines/..."
 uv run app_server.py
 ```
 
 Open [http://localhost:8000](http://localhost:8000) in your browser.
+
+> **`CONTROL_ROOM_AGENT_ENGINE_ID` resolution:**
+> * **unset** -- the dashboard reads `deployment_metadata.json` (production wiring).
+> * **`local`**, **`none`**, or empty string -- skip the metadata file and run the Control Room in-process. Use this for local development to avoid Agent Engine permission errors.
+> * **a `projects/.../reasoningEngines/...` resource name** -- invoke that remote Agent Engine.
+
+> **Port conflicts:** if `8080` or `8000` are taken (e.g. by another local server), pick free ports -- e.g. `PORT=8081` for the planner and `PORT=8001` for the dashboard. Update `PLANNER_AGENT_URL` accordingly when starting the dashboard:
+> ```bash
+> export PLANNER_AGENT_URL="http://localhost:8081/"
+> ```
 
 Dashboard features:
 * **Real-time thought stream** -- color-coded bubbles for Control Room (blue), Planner (purple), and Executor (green)
@@ -209,6 +222,31 @@ uv run agents/control_room/main.py
 | **3. Re-planning** | `Order 3 units of the discontinued XR-7000 Quantum Holographic Display` | Item not found -> re-planner broadens query -> retries |
 
 > **Note:** The mock OMS has a $100 budget limit. Keep quantities small (under ~10 units) for the happy path to succeed.
+
+### Local CUJ Walkthrough
+
+With both servers running and `CONTROL_ROOM_AGENT_ENGINE_ID=local` set on the dashboard, drive each CUJ from [http://localhost:8000](http://localhost:8000):
+
+1. **CUJ 1 -- Happy Path:** dispatch the restock prompt. Watch the planner stream "Sourcing -> Budget Check -> Purchase Order" stages. The procurement report card renders with `Outcome: SUCCESS` and a generated PO ID.
+2. **CUJ 2 -- Identity Shield:** dispatch the destructive prompt. The planner routes to the security path; Identity Shield blocks the IAM probe and the Control Room finishes immediately with `SECURITY BLOCK` -- the Re-planner stage stays cold (single A2A call, no retry).
+3. **CUJ 3 -- Re-planning:** dispatch the discontinued-item prompt. The first attempt returns a wrong-item / not-found failure, the Re-planner broadens the query, and the system retries automatically. (Note: LLM output is non-deterministic -- runs that hit `Over Budget` are correctly classified as terminal and won't retry.)
+
+**Verify from the logs** (server stdout):
+* Happy path -> `🎉 [Control Room] Workflow completed successfully:`
+* Identity Shield -> `🛡️ [Control Room] Security block detected. Not retrying.`
+* Re-planning -> `💡 [Control Room] Triggering Re-Planner Agent...`
+* Terminal failure (e.g. Over Budget) -> `❌ [Control Room] Fatal Error: Terminal failure.`
+
+### Troubleshooting (Local)
+
+| Symptom | Likely Cause | Fix |
+| ------- | ------------ | --- |
+| Dashboard startup fails with `PERMISSION_DENIED ... aiplatform.reasoningEngines.get` | `deployment_metadata.json` is being auto-loaded and pointing at a remote Agent Engine you can't access. | Set `CONTROL_ROOM_AGENT_ENGINE_ID=local` before starting `app_server.py` (skips the metadata file). |
+| `[Errno 48] Address already in use` on `8080` or `8000` | Another local process is using the default port (e.g. another `uvicorn`). | Use free ports: `PORT=8081` for the planner, `PORT=8001` for the dashboard. Set `PLANNER_AGENT_URL=http://localhost:8081/` on the dashboard. |
+| Dashboard hangs on "Routing the request to the Planning Agent..." | A2A planner not reachable, or `PLANNER_AGENT_URL` mismatched. | Confirm `curl http://localhost:8080/.well-known/agent-card.json` returns `200`; check `PLANNER_AGENT_URL` on the dashboard matches the planner's actual port. |
+| Workflow returns immediately with `🛡️ Security block detected` for a benign prompt | Planner LLM mis-classified the intent as `is_destructive`. | Re-phrase to remove imperative deletion verbs ("delete", "remove", "wipe"). |
+| Re-planner doesn't fire for a wrong-item failure | LLM produced a terminal-classified outcome (e.g. `Over Budget`) instead of a retryable one. | Re-dispatch -- LLM output is non-deterministic. Confirm via `❌ Fatal Error: Terminal failure.` vs `💡 Triggering Re-Planner Agent...` in stdout. |
+| Tests fail with `coroutine ... not subscriptable` | Pre-existing issue in `tests/integration/test_planner_graph.py` unrelated to local config. | Skip with `-k 'not test_planner_graph'` or run only `tests/unit/` and `tests/e2e/` while debugging local changes. |
 
 ### Automated E2E Testing with Jetski Subagent
 
@@ -335,13 +373,27 @@ curl https://scale-planner-a2a-1031003559548.us-central1.run.app/.well-known/age
 
 ### Unit & Integration Tests
 
-The project includes a pytest test suite covering all components. Unit and integration tests run **without** GCP credentials. E2E tests require credentials and auto-skip without them.
+The project includes a pytest test suite covering all components. Unit and integration tests run **without** GCP credentials. E2E tests require credentials and auto-skip when `GOOGLE_CLOUD_PROJECT` is unset or set to `test-project-id`.
 
 ```bash
-uv run pytest tests/ -v            # All tests
-uv run pytest tests/unit/ -v       # Unit tests (fast, no mocking)
+uv run pytest tests/ -v             # All tests
+uv run pytest tests/unit/ -v        # Unit tests (fast, no mocking)
 uv run pytest tests/integration/ -v # Integration tests (mocked external services)
-uv run pytest tests/e2e/ -v        # E2E tests (requires GCP credentials)
+uv run pytest tests/e2e/ -v         # E2E tests (requires GCP credentials)
+```
+
+**Targeted CUJ runs** (each is self-contained and mocks the A2A server):
+
+```bash
+uv run pytest tests/e2e/test_cuj1_happy_path.py -v
+uv run pytest tests/e2e/test_cuj2_identity_shield.py -v
+uv run pytest tests/e2e/test_cuj3_replanning.py -v
+```
+
+To force-skip the GCP-gated E2E tests on a workstation without credentials:
+
+```bash
+GOOGLE_CLOUD_PROJECT=test-project-id uv run pytest tests/ -v
 ```
 
 ### MCP Server (Standalone)
@@ -388,7 +440,7 @@ The CUJ 2 security path works by probing for `aiplatform.indexes.delete` permiss
 | **Executor Crew** | `agents/executor/src/crew.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **MCP Tool Adapters** | `agents/executor/src/tools.py` | `tests/integration/test_executor_crew.py` | Tested |
 | **ADK 2.0 Control Room** | `agents/control_room/agent.py` | `tests/integration/test_control_room.py` | Tested |
-| **Dashboard UI** | `app_server.py`, `ui/` | -- | Manual |
+| **Dashboard UI** | `app_server.py`, `ui/` | -- | Manual (verified end-to-end via Chrome DevTools MCP for all 3 CUJs) |
 | **CUJ 1: Happy Path** (E2E) | Full stack | `tests/e2e/test_cuj1_happy_path.py` | Tested |
 | **CUJ 2: Identity Shield** | `agents/planner/graph.py` | `tests/integration/test_identity_shield.py`, `tests/e2e/test_cuj2_identity_shield.py` | Tested |
 | **CUJ 3: Re-planning** (E2E) | `agents/control_room/agent.py` | `tests/e2e/test_cuj3_replanning.py` | Tested |

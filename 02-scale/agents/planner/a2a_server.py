@@ -107,38 +107,59 @@ class PlannerAgentExecutor(AgentExecutor):
             from agents.planner.graph import build_planner_graph
             from agents.planner.state import PlanState
             graph = build_planner_graph(on_update=on_graph_update)
-            
+
             # 2. Set the initial state
             initial_state: PlanState = {"objective": objective}
-            
+
             # 3. Execute the graph asynchronously with streaming
             _push_to_dashboard("Planning workflow ready. Starting execution...", "system")
             await on_graph_update("Planning workflow ready. Starting execution...")
             final_report = "Execution completed, but no report was generated."
+            # Track whether the security path produced this report so we can label
+            # the final artifact distinctly (so the caller doesn't have to guess
+            # by substring-matching the report text).
+            security_path = False
             async for step in graph.astream(initial_state):
                 # Each 'step' is a dict of {node_name: state_delta}
                 for node_name, state in step.items():
                     print(f"  [Planner] Node '{node_name}' finished.")
-                    
+
                     # Also send a node completion artifact
                     await on_graph_update(f"Completed stage: {node_name}")
-                    
+
+                    if node_name in ("attempt_forbidden_action", "generate_security_report"):
+                        security_path = True
+
                     # Update final report if it appears in the delta
                     if "final_report" in state and state["final_report"]:
                         final_report = state["final_report"]
 
             print(f"\n✅ [A2A Executor] LangGraph finished. Report preview: '{final_report[:100]}...'")
-            
-            # 5. Send the final result back to the calling agent
-            await updater.add_artifact([Part(root=TextPart(text=final_report))], name="orchestration_report")
+
+            # 5. Send the final result back to the calling agent. Use a distinct
+            # artifact name for security incidents so the caller can detect blocks
+            # structurally instead of substring-matching the report.
+            artifact_name = "security_incident_report" if security_path else "orchestration_report"
+            await updater.add_artifact([Part(root=TextPart(text=final_report))], name=artifact_name)
             await updater.complete()
 
+        except asyncio.CancelledError:
+            # Cooperatively shut down — the framework is cancelling us.
+            try:
+                await updater.failed()
+            except Exception:
+                pass
+            raise
         except Exception as e:
-            print(f"❌ [A2A Executor] Error occurred during execution: {e}")
+            print(f"❌ [A2A Executor] Error occurred during execution: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
             await updater.failed()
-            raise ServerError(error=InternalError(message=str(e) or type(e).__name__)) from e
+            # Don't echo str(e) to remote callers — it can leak stack traces or
+            # internal paths from underlying client errors.
+            raise ServerError(
+                error=InternalError(message=f"Planner execution failed: {type(e).__name__}")
+            ) from e
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         raise ServerError(error=UnsupportedOperationError())

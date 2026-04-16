@@ -68,6 +68,7 @@ async def test_identity_shield_via_control_room():
             "result": {
                 "artifacts": [
                     {
+                        "name": "security_incident_report",
                         "parts": [
                             {
                                 "text": (

@@ -22,15 +22,29 @@ PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "gcp-samples-ic0")
 REGION = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
 vertexai.init(project=PROJECT_ID, location=REGION)
 
-CONTROL_ROOM_AGENT_ENGINE_ID = os.environ.get("CONTROL_ROOM_AGENT_ENGINE_ID", "")
+# Resolve which Control Room agent to use:
+#   * env var unset      → fall back to deployment_metadata.json (convenience)
+#   * env var = ""       → force local in-process runner
+#   * env var = "local"  → force local in-process runner
+#   * any other value    → use that as the Agent Engine resource name
+# Distinguishing "unset" from "explicitly empty" lets a developer override the
+# auto-loaded metadata without renaming the file.
+_LOCAL_SENTINELS = {"", "local", "none"}
 METADATA_FILE = "deployment_metadata.json"
-if not CONTROL_ROOM_AGENT_ENGINE_ID and os.path.exists(METADATA_FILE):
-    try:
-        with open(METADATA_FILE) as f:
-            metadata = json.load(f)
-            CONTROL_ROOM_AGENT_ENGINE_ID = metadata.get("control_room_agent_engine_id", "")
-    except Exception as e:
-        print(f"Failed to read metadata file: {e}")
+_env_engine_id = os.environ.get("CONTROL_ROOM_AGENT_ENGINE_ID")
+if _env_engine_id is None:
+    CONTROL_ROOM_AGENT_ENGINE_ID = ""
+    if os.path.exists(METADATA_FILE):
+        try:
+            with open(METADATA_FILE) as f:
+                CONTROL_ROOM_AGENT_ENGINE_ID = json.load(f).get("control_room_agent_engine_id", "")
+        except Exception as e:
+            print(f"Failed to read metadata file: {e}")
+elif _env_engine_id.strip().lower() in _LOCAL_SENTINELS:
+    CONTROL_ROOM_AGENT_ENGINE_ID = ""
+    print("CONTROL_ROOM_AGENT_ENGINE_ID set to a local sentinel — skipping metadata file.")
+else:
+    CONTROL_ROOM_AGENT_ENGINE_ID = _env_engine_id
 
 control_room_engine = None
 if CONTROL_ROOM_AGENT_ENGINE_ID:
@@ -136,11 +150,26 @@ if not control_room_engine:
 async def health_check():
     return {"status": "ok", "message": "FastAPI is running"}
 
+def _enqueue_dashboard_push(name: str, text: str, role: str) -> None:
+    """Translate a side-channel push into the right dashboard event shape."""
+    if role.startswith("final_report"):
+        # role looks like "final_report:Success" / "final_report:Blocked" / "final_report:Failed"
+        _, _, status = role.partition(":")
+        dashboard_queue.put_nowait({
+            "type": "adk_event",
+            "event_type": "WorkflowComplete",
+            "node_name": "control_room_orchestrator",
+            "output": {"status": status or "Success", "report": text},
+        })
+        return
+    dashboard_queue.put_nowait({"type": "status", "name": name, "text": text, "role": role})
+
+
 @api_app.post("/push_status")
 async def push_status(name: str = Form(...), text: str = Form(...), role: str = Form("planner")):
     """Callback for external processes to push updates to the dashboard."""
     print(f"[DEBUG] Received status push: {name} - {text}")
-    await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
+    _enqueue_dashboard_push(name, text, role)
     return {"status": "ok"}
 
 @api_app.post("/chat")
@@ -171,41 +200,44 @@ async def chat(prompt: Optional[str] = Form(None)):
     new_message = GenAIContent(role="user", parts=parts)
     
     async def event_generator():
+        # Per-request timeout for the upstream Agent Engine call. Cold starts can
+        # take 3-5 minutes (see README), so allow ample headroom but bound it.
+        AGENT_ENGINE_TIMEOUT_S = 540.0
+
         async def run_agent():
             try:
                 if control_room_engine:
-                    # Call remote agent on Agent Engine using ADK 2.0 session API
-                    remote_session = await control_room_engine.async_create_session(user_id=user_id)
-                    session_id = remote_session["id"]
-                    
-                    async for event in control_room_engine.async_stream_query(
-                        user_id=user_id,
-                        session_id=session_id,
-                        message=prompt,
-                    ):
-                        # Handle remote events and pipe to dashboard
-                        parts = event.get("parts", [])
-                        for part in parts:
-                            if "text" in part:
-                                await dashboard_queue.put({
-                                    "type": "status",
-                                    "name": "Control Room",
-                                    "text": part["text"],
-                                    "role": "control_room"
-                                })
-                            elif "function_call" in part:
-                                await dashboard_queue.put({
-                                    "type": "status",
-                                    "name": "Control Room",
-                                    "text": f"Calling tool: {part['function_call']['name']}",
-                                    "role": "control_room"
-                                })
-                    
-                    await dashboard_queue.put({
-                        "type": "adk_event",
-                        "event_type": "WorkflowComplete",
-                        "output": {"report": "Remote execution complete."}
-                    })
+                    async with asyncio.timeout(AGENT_ENGINE_TIMEOUT_S):
+                        # Call remote agent on Agent Engine using ADK 2.0 session API
+                        remote_session = await control_room_engine.async_create_session(user_id=user_id)
+                        session_id = remote_session["id"]
+
+                        async for event in control_room_engine.async_stream_query(
+                            user_id=user_id,
+                            session_id=session_id,
+                            message=prompt,
+                        ):
+                            # Handle remote events and pipe to dashboard
+                            parts = event.get("parts", [])
+                            for part in parts:
+                                if "text" in part:
+                                    await dashboard_queue.put({
+                                        "type": "status",
+                                        "name": "Control Room",
+                                        "text": part["text"],
+                                        "role": "control_room"
+                                    })
+                                elif "function_call" in part:
+                                    await dashboard_queue.put({
+                                        "type": "status",
+                                        "name": "Control Room",
+                                        "text": f"Calling tool: {part['function_call']['name']}",
+                                        "role": "control_room"
+                                    })
+                        # Final report is pushed by the Control Room itself via
+                        # the side-channel (/push_status with role=final_report:*).
+                        # async_stream_query doesn't surface the orchestrator's
+                        # return dict, so we don't synthesize a placeholder here.
                 elif _runner and session:
                     # Call local runner
                     async for event in _runner.run_async(
@@ -224,20 +256,42 @@ async def chat(prompt: Optional[str] = Form(None)):
                         await dashboard_queue.put(event_data)
                 else:
                     await dashboard_queue.put({"type": "status", "name": "error", "text": "No agent runner available."})
+            except asyncio.CancelledError:
+                # Generator was closed (client disconnect). Don't enqueue further updates.
+                raise
+            except asyncio.TimeoutError:
+                await dashboard_queue.put({
+                    "type": "status",
+                    "name": "error",
+                    "text": f"Agent Engine timed out after {AGENT_ENGINE_TIMEOUT_S}s",
+                })
             except Exception as e:
                 await dashboard_queue.put({"type": "status", "name": "error", "text": str(e)})
             finally:
-                await dashboard_queue.put(None)
+                # Sentinel may fail if generator was cancelled; protect against double-fault.
+                try:
+                    await dashboard_queue.put(None)
+                except Exception:
+                    pass
 
-        asyncio.create_task(run_agent())
+        agent_task = asyncio.create_task(run_agent())
 
-        while True:
-            try:
-                item = await asyncio.wait_for(dashboard_queue.get(), timeout=15.0)
-                if item is None: break
-                yield f"data: {json.dumps(item)}\n\n"
-            except asyncio.TimeoutError:
-                yield ": keep-alive\n\n"
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(dashboard_queue.get(), timeout=15.0)
+                    if item is None: break
+                    yield f"data: {json.dumps(item)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            # Client disconnected or stream ended — make sure the worker doesn't outlive us.
+            if not agent_task.done():
+                agent_task.cancel()
+                try:
+                    await agent_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -304,7 +358,7 @@ async def root_redirect():
 @combined_app.post("/push_status")
 async def push_status_root(name: str = Form(...), text: str = Form(...), role: str = Form("planner")):
     print(f"[DEBUG] Received status push on root: {name} - {text}")
-    await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
+    _enqueue_dashboard_push(name, text, role)
     return {"status": "ok"}
     
 combined_app.mount("/", a2a_app)
