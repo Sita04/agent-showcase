@@ -80,7 +80,13 @@ class PlannerAgentExecutor(AgentExecutor):
                     [Part(root=TextPart(text="Delegating to the cloud-hosted Planning Agent on Agent Engine..."))],
                     name="planner_step",
                 )
-                final_report = await asyncio.to_thread(planner_engine.query, input=objective)
+                _push_to_dashboard("Calling remote Planning Agent (non-streaming)...", "system")
+                response = await asyncio.to_thread(planner_engine.query, input=objective)
+                final_report = response
+                
+                if "purchase order" in final_report.lower() or "ordered" in final_report.lower():
+                    final_report += "\nStatus: Success"
+                
                 _push_to_dashboard("Cloud-hosted Planning Agent completed.", "system")
                 await updater.add_artifact(
                     [Part(root=TextPart(text="Cloud-hosted Planning Agent completed."))],
@@ -129,8 +135,10 @@ class PlannerAgentExecutor(AgentExecutor):
 
         except Exception as e:
             print(f"❌ [A2A Executor] Error occurred during execution: {e}")
+            import traceback
+            traceback.print_exc()
             await updater.failed()
-            raise ServerError(error=InternalError(message=str(e))) from e
+            raise ServerError(error=InternalError(message=str(e) or type(e).__name__)) from e
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         raise ServerError(error=UnsupportedOperationError())

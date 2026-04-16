@@ -46,34 +46,55 @@ def load_metadata() -> dict:
 
 def warmup_engine(client, engine_id: str, label: str, query_input: str) -> str:
     """Send a warm-up query to an Agent Engine instance."""
-    print(f"  [{label}] Fetching engine {engine_id.split('/')[-1]}...")
-    engine = client.agent_engines.get(name=engine_id)
-    print(f"  [{label}] Sending warm-up query...")
     start = time.monotonic()
-    result = engine.query(input=query_input)
-    elapsed = time.monotonic() - start
-    preview = str(result)[:200]
-    return f"  [{label}] Ready in {elapsed:.0f}s — {preview}"
+    
+    try:
+        if label == "Control Room Agent":
+            print(f"  [{label}] Sending warm-up query via async_stream_query...")
+            import asyncio
+            
+            async def run_async():
+                engine = client.agent_engines.get(name=engine_id)
+                events = []
+                async for event in engine.async_stream_query(user_id="warmup_user", message=query_input):
+                    events.append(event)
+                return events
+                
+            results = asyncio.run(run_async())
+            preview = str(results[-1])[:200] if results else "No response"
+        else:
+            print(f"  [{label}] Fetching engine {engine_id.split('/')[-1]}...")
+            engine = client.agent_engines.get(name=engine_id)
+            print(f"  [{label}] Sending warm-up query via engine.query...")
+            result = engine.query(input=query_input)
+            preview = str(result)[:200]
+            
+        elapsed = time.monotonic() - start
+        return f"  [{label}] Ready in {elapsed:.0f}s — {preview}"
+    except Exception as e:
+        elapsed = time.monotonic() - start
+        raise RuntimeError(f"Failed after {elapsed:.0f}s: {e}")
 
 
 def main():
     metadata = load_metadata()
     planning_id = metadata.get("planning_agent_engine_id", "")
     crew_id = metadata.get("crew_agent_engine_id", "")
+    control_room_id = metadata.get("control_room_agent_engine_id", "")
 
-    if not planning_id or not crew_id:
+    if not planning_id or not crew_id or not control_room_id:
         print("ERROR: deployment_metadata.json missing engine IDs.")
-        print("  Deploy both engines first with scripts/deploy_to_agent_engine.py")
+        print("  Deploy all engines first with scripts/deploy_to_agent_engine.py")
         sys.exit(1)
 
     print(f"Project: {PROJECT_ID}")
     print(f"Region:  {REGION}")
-    print(f"\nWarming up both Agent Engine instances in parallel...\n")
+    print(f"\nWarming up all Agent Engine instances in parallel...\n")
 
     client = vertexai.Client(project=PROJECT_ID, location=REGION)
     start = time.monotonic()
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {
             pool.submit(
                 warmup_engine, client, crew_id,
@@ -85,6 +106,11 @@ def main():
                 "Planning Agent",
                 "Hello, warm-up ping.",
             ): "planner",
+            pool.submit(
+                warmup_engine, client, control_room_id,
+                "Control Room Agent",
+                "Hello, warm-up ping.",
+            ): "control_room",
         }
         for future in as_completed(futures):
             try:

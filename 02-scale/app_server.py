@@ -16,6 +16,30 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "agents"))
 # Load .env
 load_dotenv()
 
+import vertexai
+
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "gcp-samples-ic0")
+REGION = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
+vertexai.init(project=PROJECT_ID, location=REGION)
+
+CONTROL_ROOM_AGENT_ENGINE_ID = os.environ.get("CONTROL_ROOM_AGENT_ENGINE_ID", "")
+METADATA_FILE = "deployment_metadata.json"
+if not CONTROL_ROOM_AGENT_ENGINE_ID and os.path.exists(METADATA_FILE):
+    try:
+        with open(METADATA_FILE) as f:
+            metadata = json.load(f)
+            CONTROL_ROOM_AGENT_ENGINE_ID = metadata.get("control_room_agent_engine_id", "")
+    except Exception as e:
+        print(f"Failed to read metadata file: {e}")
+
+control_room_engine = None
+if CONTROL_ROOM_AGENT_ENGINE_ID:
+    print(f"Using remote Control Room Agent: {CONTROL_ROOM_AGENT_ENGINE_ID}")
+    client = vertexai.Client(project=PROJECT_ID, location=REGION)
+    control_room_engine = client.agent_engines.get(name=CONTROL_ROOM_AGENT_ENGINE_ID)
+else:
+    print("WARNING: CONTROL_ROOM_AGENT_ENGINE_ID not found. Falling back to local runner.")
+
 from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
@@ -89,10 +113,10 @@ class ControlRoomAgentExecutor(AgentExecutor):
 
 # FastAPI Setup
 
-app = FastAPI(title="Scale Agents Control Room Dashboard")
+api_app = FastAPI(title="Scale Agents Control Room Dashboard")
 
 # Add CORS for local development
-app.add_middleware(
+api_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -100,24 +124,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Persistent runner
-_runner = InMemoryRunner(
-    agent=ControlRoomAgent,
-    app_name="control_room_app",
-)
+_runner = None
+if not control_room_engine:
+    # Persistent runner for local dev
+    _runner = InMemoryRunner(
+        agent=ControlRoomAgent,
+        app_name="control_room_app",
+    )
 
-@app.get("/health")
+@api_app.get("/health")
 async def health_check():
     return {"status": "ok", "message": "FastAPI is running"}
 
-@app.post("/push_status")
+@api_app.post("/push_status")
 async def push_status(name: str = Form(...), text: str = Form(...), role: str = Form("planner")):
     """Callback for external processes to push updates to the dashboard."""
     print(f"[DEBUG] Received status push: {name} - {text}")
     await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
     return {"status": "ok"}
 
-@app.post("/chat")
+@api_app.post("/chat")
 async def chat(prompt: Optional[str] = Form(None)):
     user_id = "admin"
 
@@ -128,11 +154,13 @@ async def chat(prompt: Optional[str] = Form(None)):
         except asyncio.QueueEmpty:
             break
     
-    # Create fresh session
-    session = await _runner.session_service.create_session(
-        app_name="control_room_app",
-        user_id=user_id
-    )
+    # Create fresh session if running locally
+    session = None
+    if _runner:
+        session = await _runner.session_service.create_session(
+            app_name="control_room_app",
+            user_id=user_id
+        )
     
     parts = []
     if prompt:
@@ -145,20 +173,57 @@ async def chat(prompt: Optional[str] = Form(None)):
     async def event_generator():
         async def run_agent():
             try:
-                async for event in _runner.run_async(
-                    session_id=session.id,
-                    user_id=user_id,
-                    new_message=new_message
-                ):
-                    event_data = {
+                if control_room_engine:
+                    # Call remote agent on Agent Engine using ADK 2.0 session API
+                    remote_session = await control_room_engine.async_create_session(user_id=user_id)
+                    session_id = remote_session["id"]
+                    
+                    async for event in control_room_engine.async_stream_query(
+                        user_id=user_id,
+                        session_id=session_id,
+                        message=prompt,
+                    ):
+                        # Handle remote events and pipe to dashboard
+                        parts = event.get("parts", [])
+                        for part in parts:
+                            if "text" in part:
+                                await dashboard_queue.put({
+                                    "type": "status",
+                                    "name": "Control Room",
+                                    "text": part["text"],
+                                    "role": "control_room"
+                                })
+                            elif "function_call" in part:
+                                await dashboard_queue.put({
+                                    "type": "status",
+                                    "name": "Control Room",
+                                    "text": f"Calling tool: {part['function_call']['name']}",
+                                    "role": "control_room"
+                                })
+                    
+                    await dashboard_queue.put({
                         "type": "adk_event",
-                        "event_type": type(event).__name__,
-                        "node_name": getattr(event, 'node_name', 'N/A'),
-                    }
-                    output = getattr(event, 'output', None)
-                    if output:
-                        event_data["output"] = output
-                    await dashboard_queue.put(event_data)
+                        "event_type": "WorkflowComplete",
+                        "output": {"report": "Remote execution complete."}
+                    })
+                elif _runner and session:
+                    # Call local runner
+                    async for event in _runner.run_async(
+                        session_id=session.id,
+                        user_id=user_id,
+                        new_message=new_message
+                    ):
+                        event_data = {
+                            "type": "adk_event",
+                            "event_type": type(event).__name__,
+                            "node_name": getattr(event, 'node_name', 'N/A'),
+                        }
+                        output = getattr(event, 'output', None)
+                        if output:
+                            event_data["output"] = output
+                        await dashboard_queue.put(event_data)
+                else:
+                    await dashboard_queue.put({"type": "status", "name": "error", "text": "No agent runner available."})
             except Exception as e:
                 await dashboard_queue.put({"type": "status", "name": "error", "text": str(e)})
             finally:
@@ -215,31 +280,38 @@ def build_a2a_host(public_url: str):
 
 # Mount static files
 ui_dir = os.path.join(os.path.dirname(__file__), "ui")
-app.mount("/", StaticFiles(directory=ui_dir, html=True), name="ui")
+
+port = int(os.environ.get("PORT", 8080))
+public_url = os.environ.get("AGENT_URL", f"http://localhost:{port}/")
+
+# Build the A2A app
+a2a_app = build_a2a_host(public_url)
+
+# Combined application routing
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+
+combined_app = FastAPI()
+
+# Order matters: more specific routes first
+combined_app.mount("/api", api_app)
+combined_app.mount("/ui", StaticFiles(directory=ui_dir, html=True))
+
+@combined_app.get("/")
+async def root_redirect():
+    return RedirectResponse(url="/ui/")
+
+@combined_app.post("/push_status")
+async def push_status_root(name: str = Form(...), text: str = Form(...), role: str = Form("planner")):
+    print(f"[DEBUG] Received status push on root: {name} - {text}")
+    await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
+    return {"status": "ok"}
+    
+combined_app.mount("/", a2a_app)
+
+# Expose 'app' for uvicorn in production
+app = combined_app
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    public_url = os.environ.get("AGENT_URL", f"http://localhost:{port}/")
-    
-    # Build the A2A app
-    a2a_app = build_a2a_host(public_url)
-    
-    # Combined application routing
-    from starlette.applications import Starlette
-    from starlette.routing import Mount, Route
-    from starlette.responses import RedirectResponse
-    
-    # Order matters: more specific routes first
-    combined_app = Starlette(
-        routes=[
-            Mount("/api", app), # FastAPI endpoints
-            Mount("/ui", StaticFiles(directory=ui_dir, html=True)), # Static UI files
-            # Root GET redirects to UI
-            Route("/", endpoint=lambda r: RedirectResponse(url="/ui/"), methods=["GET"]),
-            # A2A handles everything else (POST to /, GET to /.well-known/...)
-            Mount("/", a2a_app),
-        ]
-    )
-
     print(f"Starting Registry-Ready Orchestrator on port {port}...")
-    uvicorn.run(combined_app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port)

@@ -10,6 +10,9 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
+ARG UV_EXTRA_INDEX_URL
+ENV UV_EXTRA_INDEX_URL=$UV_EXTRA_INDEX_URL
+
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --prerelease allow
 RUN uv pip install --python /app/.venv/bin/python "google-adk==2.0.0a2" "fastapi==0.135.2"

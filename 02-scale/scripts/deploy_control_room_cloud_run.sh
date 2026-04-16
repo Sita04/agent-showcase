@@ -26,10 +26,21 @@ echo "Planner URL: ${PLANNER_AGENT_URL}"
 echo "Service Account: ${CONTROL_ROOM_SA}"
 echo ""
 
+# Copy uv.lock from root to context directory
+cp ../uv.lock .
+
+# Get access token for private registry
+TOKEN=$(gcloud auth print-access-token)
+UV_URL="https://oauth2accesstoken:${TOKEN}@us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/"
+
+# Read Control Room Agent ID from metadata if present
+CONTROL_ROOM_AGENT_ENGINE_ID=$(python3 -c "import json; print(json.load(open('deployment_metadata.json')).get('control_room_agent_engine_id', ''))" 2>/dev/null || echo "")
+echo "Control Room Agent ID from metadata: ${CONTROL_ROOM_AGENT_ENGINE_ID}"
+
 gcloud builds submit \
   --project "${PROJECT_ID}" \
   --config cloudbuild-control-room.yaml \
-  --substitutions "_IMAGE_URI=${IMAGE_URI}" \
+  --substitutions "_IMAGE_URI=${IMAGE_URI},_UV_EXTRA_INDEX_URL=${UV_URL}" \
   .
 
 gcloud run deploy "${SERVICE_NAME}" \
@@ -37,7 +48,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --region "${REGION}" \
   --image "${IMAGE_URI}" \
   --service-account "${CONTROL_ROOM_SA}" \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GOOGLE_GENAI_USE_VERTEXAI=TRUE,PLANNER_AGENT_URL=${PLANNER_AGENT_URL}" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GOOGLE_GENAI_USE_VERTEXAI=TRUE,PLANNER_AGENT_URL=${PLANNER_AGENT_URL},CONTROL_ROOM_AGENT_ENGINE_ID=${CONTROL_ROOM_AGENT_ENGINE_ID}" \
   --concurrency 10 \
   --min-instances 1 \
   --timeout 600 \

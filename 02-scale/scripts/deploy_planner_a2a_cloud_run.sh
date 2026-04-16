@@ -27,10 +27,17 @@ echo "Planning Agent Engine: ${PLANNING_AGENT_ENGINE_ID}"
 echo "Service Account: ${SERVICE_ACCOUNT}"
 echo ""
 
+# Copy uv.lock from root to context directory
+cp ../uv.lock .
+
+# Get access token for private registry
+TOKEN=$(gcloud auth print-access-token)
+UV_URL="https://oauth2accesstoken:${TOKEN}@us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/"
+
 gcloud builds submit \
   --project "${PROJECT_ID}" \
   --config cloudbuild-planner-a2a.yaml \
-  --substitutions "_IMAGE_URI=${IMAGE_URI}" \
+  --substitutions "_IMAGE_URI=${IMAGE_URI},_UV_EXTRA_INDEX_URL=${UV_URL}" \
   .
 
 gcloud run deploy "${SERVICE_NAME}" \

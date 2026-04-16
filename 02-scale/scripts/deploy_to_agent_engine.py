@@ -40,16 +40,26 @@ import vertexai
 
 from build_patched_crewai_wheel import build_patched_wheel
 
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "gcp-samples-ic0")
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+if not PROJECT_ID or PROJECT_ID == "gcp-samples-ic0":
+    print("ERROR: GOOGLE_CLOUD_PROJECT environment variable must be set to your actual project ID.")
+    print("Example: GOOGLE_CLOUD_PROJECT=\"your-project-id\" uv run scripts/deploy_to_agent_engine.py ...")
+    sys.exit(1)
+
 REGION = "us-central1"
 PLANNING_SA = f"planning-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
 EXECUTION_SA = f"execution-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
 CONTROL_ROOM_STATUS_URL = os.environ.get(
     "CONTROL_ROOM_STATUS_URL",
-    "https://scale-control-room-761793285222.us-central1.run.app/api/push_status",
+    "https://scale-control-room-YOUR-PROJECT-NUMBER.us-central1.run.app/api/push_status",
 )
 
-STAGING_BUCKET = f"gs://staging.{PROJECT_ID}.appspot.com"
+# Warn the user if they are using the default placeholder URL
+if "YOUR-PROJECT-NUMBER" in CONTROL_ROOM_STATUS_URL:
+    print("WARNING: Using placeholder CONTROL_ROOM_STATUS_URL. Progress messages may not appear in UI.")
+    print("Set CONTROL_ROOM_STATUS_URL environment variable to your actual dashboard URL.")
+
+STAGING_BUCKET = f"gs://agent-engine-staging-{PROJECT_ID}"
 
 SCALE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 METADATA_FILE = os.path.join(SCALE_DIR, "deployment_metadata.json")
@@ -117,6 +127,7 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
     config = {
         "display_name": "Execution Crew (CUJ 2)",
         "staging_bucket": STAGING_BUCKET,
+        "min_instances": 1,
         "serviceAccount": EXECUTION_SA,
         "requirements": [
             "cloudpickle>=3.0.0",
@@ -198,6 +209,7 @@ def deploy_planning_agent(args: argparse.Namespace) -> str:
     config = {
         "display_name": "Planning Agent (Identity Shield - CUJ 2)",
         "staging_bucket": STAGING_BUCKET,
+        "min_instances": 1,
         "serviceAccount": PLANNING_SA,
         "requirements": [
             "cloudpickle>=3.0.0",
@@ -287,36 +299,61 @@ def deploy_agent_via_adk(
 
 
 def deploy_control_room_agent(args: argparse.Namespace) -> str:
-    """Deploy the Control Room Agent with full SA via adk CLI."""
+    """Deploy the Control Room Agent via Python SDK (AdkApp)."""
     print("\n=== Deploying Control Room Agent (ADK Workflow) ===")
     print(f"  Service Account: {EXECUTION_SA}")
 
+    from vertexai import agent_engines
+    
+    # Ensure we can import from agents/control_room
+    sys.path.insert(0, SCALE_DIR)
+    from agents.control_room.agent import root_agent
+
     metadata = load_metadata()
-    existing_id = (
-        metadata.get("control_room_agent_engine_id") if not args.force else None
-    )
 
-    engine_id_param = None
-    if existing_id:
-        engine_id_param = (
-            existing_id.split("/")[-1] if "/" in existing_id else existing_id
-        )
-
-    resource_name = deploy_agent_via_adk(
-        agent_dir="agents/control_room",
-        display_name="Control Room Agent (CUJ 2)",
+    # Initialize vertexai with staging bucket for AdkApp
+    vertexai.init(
         project=args.project,
-        region=args.region,
-        agent_engine_id=engine_id_param,
+        location=args.region,
+        staging_bucket=STAGING_BUCKET,
     )
 
-    if resource_name:
-        client = vertexai.Client(project=args.project, location=args.region)
-        _bind_service_account(client, resource_name, EXECUTION_SA)
+    app = agent_engines.AdkApp(
+        agent=root_agent,
+        app_name="control_room_app",
+        enable_tracing=True,
+    )
+    app.set_up()
 
-        metadata["control_room_agent_engine_id"] = resource_name
-        metadata["control_room_agent_sa"] = EXECUTION_SA
-        save_metadata(metadata)
+    print("  Deploying agent to Agent Engine...")
+    
+    env_vars = {
+        'CONTROL_ROOM_STATUS_URL': CONTROL_ROOM_STATUS_URL,
+        'PLANNER_AGENT_URL': os.environ.get("PLANNER_AGENT_URL", ""),
+    }
+    
+    remote_agent = agent_engines.create(
+        app,
+        display_name='Control Room Agent (CUJ 2)',
+        min_instances=1,
+        requirements=[
+            "google-adk==2.0.0a3",
+            "httpx",
+            "python-dotenv",
+        ],
+        extra_packages=["agents"],
+        env_vars=env_vars,
+    )
+    
+    resource_name = remote_agent.gca_resource.name
+    print(f"  ✅ Deployed: {resource_name}")
+
+    client = vertexai.Client(project=args.project, location=args.region)
+    _bind_service_account(client, resource_name, EXECUTION_SA)
+
+    metadata["control_room_agent_engine_id"] = resource_name
+    metadata["control_room_agent_sa"] = EXECUTION_SA
+    save_metadata(metadata)
 
     return resource_name
 

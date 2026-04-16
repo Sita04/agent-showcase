@@ -9,6 +9,7 @@ from google.adk.workflow import Workflow, node
 from google.adk.agents.llm_agent import LlmAgent
 
 A2A_SERVER_URL = os.environ.get("PLANNER_AGENT_URL", "http://127.0.0.1:8080")
+CONTROL_ROOM_STATUS_URL = os.environ.get("CONTROL_ROOM_STATUS_URL", "")
 
 # Side-channel for Dashboard Updates
 # This allows us to send real-time progress to the UI without
@@ -17,7 +18,16 @@ dashboard_queue = asyncio.Queue()
 
 
 async def emit_status(name: str, text: str, role: str = "control_room"):
+    # Local queue for in-process dashboard (if running locally)
     await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
+    
+    # Remote push for Agent Engine deployment
+    if CONTROL_ROOM_STATUS_URL:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(CONTROL_ROOM_STATUS_URL, data={"name": name, "text": text, "role": role})
+        except Exception as e:
+            print(f"[Control Room] Failed to push status to {CONTROL_ROOM_STATUS_URL}: {e}")
 
 
 def _classify_report(report: str) -> tuple[bool, bool]:
