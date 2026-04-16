@@ -709,9 +709,7 @@ async def create_checkout_session(items: List[CartItem], request: Request):
 
 @app.get("/api/clear-cart")
 async def clear_cart():
-    from agents.agent import GLOBAL_CART
-    GLOBAL_CART.clear()
-    print("DEBUG: Cart cleared on server.")
+    print("DEBUG: Cart cleared on server (noop).")
     return {"status": "success", "message": "Cart cleared"}
 
 # Mount images directory
