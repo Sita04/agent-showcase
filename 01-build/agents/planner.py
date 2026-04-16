@@ -19,7 +19,7 @@ with specific budget allocations and thematic guidance.
 """
 
 from google.adk.agents import Agent
-from agents.schemas import ShoppingPlan
+from .schemas import ShoppingPlan
 
 def create_planner_agent(name="shopping_planner_node"):
     return Agent(

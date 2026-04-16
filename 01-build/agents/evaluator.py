@@ -19,7 +19,7 @@ Acts as the gatekeeper to ensure items are under budget and exist.
 
 from google.adk import Context
 from google.adk.workflow import node
-from agents.schemas import EvaluationReport
+from .schemas import EvaluationReport
 
 @node(name="evaluator_node")
 async def shopping_evaluator(ctx: Context, node_input: dict):

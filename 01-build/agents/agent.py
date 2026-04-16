@@ -24,20 +24,24 @@ import json
 import os
 import stripe
 
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
-
 from google.adk.workflow import Workflow, node 
 from google.adk import Context
 from google.adk.agents.llm_agent import LlmAgent
+from google.adk.apps.app import App
 
-# Import local modules using absolute package paths
-from agents.planner import create_planner_agent 
-from agents.scout import create_scout_agent
-from agents.evaluator import shopping_evaluator
-from agents.schemas import CartItem, EvaluationReport, ShoppingPlan, CartItemOptions
-from google.adk.tools.mcp_tool import McpToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
-import os
+# Import local modules using relative paths
+from .planner import create_planner_agent
+from .scout import create_scout_agent
+from .evaluator import shopping_evaluator
+from .schemas import CartItem, EvaluationReport, ShoppingPlan, CartItemOptions
+from .views.plan import render_plan_ui
+from dotenv import load_dotenv
+from pathlib import Path
+
+env_path = Path(__file__).parent / '.env'
+load_dotenv(dotenv_path=env_path)
+
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 # Global cart for demo purposes to avoid state persistence issues
 GLOBAL_CART = []
@@ -90,8 +94,6 @@ def _parse_plan_from_state(ctx: Context, original_plan) -> ShoppingPlan | None:
 
 @node(rerun_on_resume=True)
 async def shopping_workflow(ctx: Context, node_input):
-    print(f"DEBUG: shopping_workflow entered with node_input: {node_input}")
-    print(f"DEBUG: current awaiting_selection state: {ctx.state.get('awaiting_selection')}")
     max_attempts = 2
     attempt = 0
     run_id = uuid.uuid4().hex[:6]
@@ -156,7 +158,6 @@ async def shopping_workflow(ctx: Context, node_input):
                 return f"Error creating payment link: {str(e)}"
 
         cart_items = GLOBAL_CART
-        print(f"DEBUG: Current Cart in prompt: {cart_items}")
         
         selection_agent = LlmAgent(
             name=f"sys_speaker_selection_{run_id}_{uuid.uuid4().hex[:4]}",
@@ -203,8 +204,6 @@ async def shopping_workflow(ctx: Context, node_input):
         user_reply = _extract_text(node_input).lower().strip()
         # Accept a much broader set of positive affirmations
         positive_affirmations = ["yes", "y", "sure", "ok", "okay", "approve", "approved", "looks good", "proceed", "go ahead"]
-        
-        import re
         if any(re.search(rf"\b{word}\b", user_reply) for word in positive_affirmations):
             # User approved! Clear flag and load the plan to proceed to scouts
             ctx.state["awaiting_approval"] = False
@@ -214,24 +213,26 @@ async def shopping_workflow(ctx: Context, node_input):
             # User rejected or provided feedback! Generate a new plan.
             ctx.state["awaiting_approval"] = False
             dynamic_planner = create_planner_agent(name=f"planner_user_ref__{run_id}")
-            plan = await ctx.run_node(dynamic_planner, f"User rejected plan with feedback: {_extract_text(node_input)}. Update it.")
+            prev_plan = ctx.state.get("shopping_plan")
+            prev_plan_str = prev_plan.model_dump_json(indent=2) if hasattr(prev_plan, "model_dump_json") else str(prev_plan)
+            prompt = f"""
+            The user rejected the previous shopping plan with feedback: '{_extract_text(node_input)}'.
+            
+            Here is the previous plan:
+            {prev_plan_str}
+            
+            Please update the plan based on the feedback. Modify or replace components to address the feedback while keeping the rest of the plan aligned with the user's goal.
+            """
+            plan = await ctx.run_node(dynamic_planner, prompt)
             plan = _parse_plan_from_state(ctx, plan)
             ctx.state["awaiting_approval"] = True
             
             plan_dict = plan.model_dump() if hasattr(plan, 'model_dump') else plan
             
             # Update A2UI in state so the UI cards match the new plan!
-            from agents.views.plan import render_plan_ui
             ctx.state["proposed_plan_ui"] = render_plan_ui(plan_dict)
             
-            components_md = "\n".join([f"- **{c.get('category')}**: ${c.get('budget_allocation')} ({c.get('description_prompt')})" for c in plan_dict.get('components', [])])
-            
-            msg = (
-                f"### Updated Plan: {plan_dict.get('theme', 'Custom')}\n\n"
-                f"**Total Budget:** ${plan_dict.get('total_budget', 0)}\n\n"
-                f"**Allocations:**\n{components_md}\n\n"
-                f"👉 I've updated the plan based on your feedback! Do you approve? Reply 'Yes' to begin the search!"
-            )
+            msg = "👉 I've updated the plan based on your feedback! Do you approve? Reply 'Yes' to begin the search!"
             await _speak(ctx, msg, f"update_{run_id}_{uuid.uuid4().hex[:4]}")
             return {"status": "Awaiting human approval"}
     else:
@@ -239,7 +240,7 @@ async def shopping_workflow(ctx: Context, node_input):
         input_text = _extract_text(node_input)
         print(f"DEBUG: input_text for planner check = '{input_text}'")
         if "similar to" in input_text.lower() or "find_similar_items" in input_text.lower():
-            from agents.schemas import ShoppingComponent
+            from .schemas import ShoppingComponent
             import re
             
             # Try to extract budget
@@ -268,8 +269,6 @@ async def shopping_workflow(ctx: Context, node_input):
                 return "Planner failed to initialize."
             
             ctx.state["awaiting_approval"] = True
-            
-            from agents.views.plan import render_plan_ui
             plan_dict = plan.model_dump() if hasattr(plan, 'model_dump') else plan
             ctx.state["proposed_plan_ui"] = render_plan_ui(plan_dict)
             
@@ -310,14 +309,13 @@ async def shopping_workflow(ctx: Context, node_input):
                 
             # If the Scout returned our beautiful conversational text, extract the hidden JSON!
             if isinstance(item, str):
-                import re, json
                 match = re.search(r'<!--\s*\[JSON_PAYLOAD\]\s*(.*?)\s*\[/JSON_PAYLOAD\]\s*-->', item, re.DOTALL | re.IGNORECASE)
                 if match:
                     try:
                         parsed = json.loads(match.group(1))
                         item = CartItemOptions(**parsed)
                     except Exception as e:
-                        print(f"DEBUG: Failed to parse scout xml json data: {e}")
+                        pass
             elif isinstance(item, dict):
                 item = CartItemOptions(**item)
                 
@@ -371,4 +369,9 @@ async def shopping_workflow(ctx: Context, node_input):
 root_agent = Workflow(
     name="shopping_squad_root",
     edges=[("START", shopping_workflow)], # Workflow starts here
+)
+
+app = App(
+    name="shopping_squad_app",
+    root_agent=root_agent
 )
