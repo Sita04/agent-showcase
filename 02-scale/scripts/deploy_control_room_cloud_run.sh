@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-gcp-samples-ic0}"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-n26-learn-build-ai-apps-6}"
 REGION="${CLOUD_RUN_REGION:-us-central1}"
 SERVICE_NAME="${CONTROL_ROOM_SERVICE_NAME:-scale-control-room}"
 REPOSITORY="${ARTIFACT_REPOSITORY:-agent-showcase}"
