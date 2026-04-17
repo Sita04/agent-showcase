@@ -4,6 +4,6 @@
   "crewai_patched_wheel": "vendor/crewai-1.6.1-py3-none-any.whl",
   "planning_agent_engine_id": "projects/1031003559548/locations/us-central1/reasoningEngines/4881172470104588288",
   "planning_agent_sa": "planning-agent-sa@n26-learn-build-ai-apps-6.iam.gserviceaccount.com",
-  "control_room_agent_engine_id": "projects/1031003559548/locations/us-central1/reasoningEngines/7224733126197510144",
+  "control_room_agent_engine_id": "projects/1031003559548/locations/us-central1/reasoningEngines/1798880737634549760",
   "control_room_agent_sa": "execution-agent-sa@n26-learn-build-ai-apps-6.iam.gserviceaccount.com"
 }
