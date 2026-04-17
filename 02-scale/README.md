@@ -265,77 +265,84 @@ The agent will:
 
 ## Deployment
 
-### Cloud Run Deployment
+The full demo runs across **four** managed services:
 
-The Control Room deploys to **Cloud Run** with the ADK 2.0 `Workflow`. The entrypoint `app_server.py` serves the dashboard UI, `/api/chat`, and `/api/push_status` for progress callbacks.
+| Service | Runtime | Identity |
+| ------- | ------- | -------- |
+| **Execution Crew** (CrewAI) | Agent Engine | `execution-agent-sa` |
+| **Planning Agent** (LangGraph) | Agent Engine | `planning-agent-sa` |
+| **Planner A2A bridge** | Cloud Run | `planning-agent-sa` |
+| **Control Room Dashboard** (ADK 2.0 Workflow + UI) | Cloud Run | `control-room-sa` |
 
-Key configuration:
-* `--concurrency 10` -- required so push_status callbacks and the SSE stream share the same instance
+The Planner A2A bridge wraps the Agent-Engine planner so the Control Room can talk to it via standard A2A JSON-RPC. The Dashboard runs the ADK Workflow in-process today and is the user-facing entry point.
+
+Key Cloud Run knobs:
+* `--concurrency 10` -- required so `/api/push_status` callbacks and the SSE stream share the same instance
 * `--min-instances 1` -- keeps both services warm between demo runs
-* Cloud Run timeout is 600s to accommodate Agent Engine latency
+* `--timeout 600` -- accommodates Agent Engine cold-start latency (3-5 min)
+
+### End-to-End Deploy Order
+
+There is a chicken-and-egg dependency: the Planner A2A bridge needs the Dashboard URL (for status push-back), and the Dashboard needs the Planner A2A URL (for delegation). Resolve it by deploying the Dashboard with a known service name, computing its URL up front, then patching the Planner A2A's status URL in a second pass.
 
 ```bash
-# Step 1: Ensure IAM service accounts exist
+# 0. Authenticate. The internal Python registry (artifact-foundry-prod)
+#    requires a Googler corp account — set CLOUDSDK_CORE_ACCOUNT before each
+#    gcloud command if your default account is non-corp.
+export CLOUDSDK_CORE_ACCOUNT=you@google.com
+export GOOGLE_CLOUD_PROJECT=gcp-samples-ic0
+
+# 1. Create service accounts + IAM roles (idempotent)
 bash scripts/setup_iam.sh
 
-# Step 2: Deploy the planner to Agent Engine
-uv run scripts/deploy_to_agent_engine.py --planning-only
+# 2. Deploy the Execution Crew + Planning Agent to Agent Engine.
+#    CONTROL_ROOM_STATUS_URL is read by the in-Agent-Engine planner so its
+#    LangGraph + CrewAI step callbacks push intermediate progress to the
+#    Dashboard. The URL must point to the eventual Cloud Run service —
+#    derive it from the project number once and reuse below.
+PROJECT_NUMBER=$(gcloud projects describe "${GOOGLE_CLOUD_PROJECT}" --format='value(projectNumber)')
+DASHBOARD_URL="https://scale-control-room-${PROJECT_NUMBER}.us-central1.run.app"
 
-# Step 3: Deploy the planner A2A bridge on Cloud Run
-PLANNING_AGENT_ENGINE_ID="projects/.../reasoningEngines/..." \
-  bash scripts/deploy_planner_a2a_cloud_run.sh
-
-### Resolving the Circular Dependency for Control Room
-The Control Room Dashboard (Cloud Run) and the Control Room Agent (Agent Engine) depend on each other:
-* The Dashboard needs the **Agent Engine ID** to invoke it.
-* The Agent needs the **Dashboard URL** to push status updates.
-
-To bootstrap this setup:
-
-# Step 4: Deploy the Control Room Dashboard first (to get its URL)
-PLANNER_AGENT_URL="https://YOUR-PLANNER-A2A-ENDPOINT" \
-  bash scripts/deploy_control_room_cloud_run.sh
-
-# Step 5: Deploy the Control Room Agent to Agent Engine (passing the Dashboard URL)
-PLANNER_AGENT_URL="https://YOUR-PLANNER-A2A-ENDPOINT" \
-  CONTROL_ROOM_STATUS_URL="https://YOUR-DASHBOARD-URL/push_status" \
-  uv run scripts/deploy_to_agent_engine.py --control-room-only
-
-# Step 6: Update the Dashboard with the Agent Engine ID
-gcloud run services update scale-control-room \
-  --update-env-vars "CONTROL_ROOM_AGENT_ENGINE_ID=projects/.../reasoningEngines/..."
-```
-
-Deployment assets: `Dockerfile.planner-a2a`, `Dockerfile.control-room`, `cloudbuild-*.yaml`, `scripts/deploy_*_cloud_run.sh`
-
-### Agent Engine Deployment
-
-Deploy agents to Agent Engine with scoped IAM service accounts.
-
-**Prerequisites:** `gcloud` CLI authenticated, dependencies synced (`uv sync`)
-
-```bash
-# Step 1: Create service accounts and bind IAM roles
-bash scripts/setup_iam.sh
-
-# Step 2: Deploy the Execution Crew (source deployment + patched CrewAI wheel)
-GOOGLE_CLOUD_PROJECT="YOUR-PROJECT-ID" \
-CONTROL_ROOM_STATUS_URL="https://YOUR-DASHBOARD-URL/api/push_status" \
+CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" \
   uv run scripts/deploy_to_agent_engine.py --crew-only
 
-# Step 3: Deploy the Planning Agent
-GOOGLE_CLOUD_PROJECT="YOUR-PROJECT-ID" \
-CONTROL_ROOM_STATUS_URL="https://YOUR-DASHBOARD-URL/api/push_status" \
+CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" \
   uv run scripts/deploy_to_agent_engine.py --planning-only
 
-# List deployed engines
-uv run scripts/deploy_to_agent_engine.py --list
+# 3. Deploy the Planner A2A bridge on Cloud Run (run from the 02-scale dir).
+#    PLANNING_AGENT_ENGINE_ID is auto-saved to deployment_metadata.json by
+#    step 2 — read it from there. CONTROL_ROOM_URL lets the bridge proxy
+#    status updates from the Agent-Engine planner to the Dashboard.
+PLANNING_AGENT_ENGINE_ID=$(python3 -c \
+  "import json; print(json.load(open('deployment_metadata.json'))['planning_agent_engine_id'])")
 
-# Teardown (delete engines, SAs, and IAM bindings)
-bash scripts/teardown.sh
+PLANNING_AGENT_ENGINE_ID="${PLANNING_AGENT_ENGINE_ID}" \
+  CONTROL_ROOM_URL="${DASHBOARD_URL}" \
+  bash scripts/deploy_planner_a2a_cloud_run.sh
+
+# 4. Deploy the Control Room Dashboard on Cloud Run.
+#    Use the URL printed by step 3 as PLANNER_AGENT_URL.
+PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.app/" \
+  bash scripts/deploy_control_room_cloud_run.sh
 ```
 
-**Patched CrewAI wheel:** The Execution Crew requires a locally patched CrewAI wheel to work around a `compileall` issue with Jinja2 template files. Build it with:
+> **If you redeploy the Dashboard later**, re-run step 3's `gcloud run services update scale-planner-a2a --update-env-vars CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status"` so the planner bridge keeps pushing status to the right host. Without it, the dashboard renders only Control Room + A2A bubbles — Planner / Executor bubbles silently drop.
+
+> **Optional Phase 2: Control Room on Agent Engine.** The Dashboard can offload the ADK Workflow to a remote Agent Engine instance (so multiple replicas share one orchestrator). Deploy with `uv run scripts/deploy_to_agent_engine.py --control-room-only` (passing `PLANNER_AGENT_URL` and `CONTROL_ROOM_STATUS_URL`), then `gcloud run services update scale-control-room --update-env-vars CONTROL_ROOM_AGENT_ENGINE_ID=projects/.../reasoningEngines/...`. Source deployment of `Workflow` agents was previously blocked; verify against the latest ADK release before relying on it.
+
+Deployment assets: `Dockerfile.planner-a2a`, `Dockerfile.control-room`, `cloudbuild-*.yaml`, `scripts/deploy_*_cloud_run.sh`, `scripts/deploy_to_agent_engine.py`.
+
+### Agent Engine Deployment Details
+
+Useful subcommands of `scripts/deploy_to_agent_engine.py`:
+
+```bash
+uv run scripts/deploy_to_agent_engine.py --list      # show deployed engines
+uv run scripts/deploy_to_agent_engine.py --teardown  # delete engines + bindings
+bash scripts/teardown.sh                             # full nuke incl. SAs & IAM
+```
+
+**Patched CrewAI wheel:** the Execution Crew needs a locally patched CrewAI wheel to work around a `compileall` issue with Jinja2 template files. The deploy script auto-builds it; build it manually with:
 
 ```bash
 uv run scripts/build_patched_crewai_wheel.py
@@ -491,7 +498,7 @@ effective_identity=planning-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com
 
 The live CUJ 2 security boundary uses a custom least-privilege planner role plus a deterministic IAM permission probe in the security path. The planner security node checks for `aiplatform.indexes.delete` on the project before attempting the destructive action, avoiding the fake-resource `NotFound` ambiguity. The IAM deny policy remains optional extra defense but is not required for the demo.
 
-#### Live Cloud Run Validation (2026-04-09)
+#### Live Cloud Run Validation (2026-04-17)
 
 The Cloud Run path is live in `gcp-samples-ic0`:
 
@@ -503,14 +510,16 @@ Validated live behavior:
 * `GET /api/health` on the Control Room returns `200`
 * `GET /.well-known/agent.json` on the planner bridge returns `200`
 * A direct JSON-RPC `message/send` request to the planner bridge returns `200` and reaches the deployed planning reasoning engine
+* CUJ 1 happy path (`Restock 3 Pixel 7 phones for the Tokyo office`) returns a `SUCCESS` procurement report end-to-end via Chrome DevTools MCP
 * The destructive CUJ works end to end: Cloud Run Control Room -> Cloud Run planner A2A bridge -> Agent Engine planner -> security block report
-* A normal restock prompt reaches the full chain without the earlier `FAILED_PRECONDITION` / missing-`mcp` runtime error
+* Dashboard now shows **Control Room (ADK)**, **A2A Protocol**, and **Planner (LangGraph)** bubbles after wiring `CONTROL_ROOM_STATUS_URL` on the planner A2A bridge
 
 Current live limitations:
 
 * Agent Engine cold starts take 3-5 minutes -- always warm up after deploy
 * Cloud Run timeouts are set to 600s to accommodate Agent Engine latency
 * The execution runtime uses direct `mcpadapt` for the remote vector-search MCP server and in-process mock OMS tools instead of the stdio-backed mock OMS MCP subprocess
+* **Executor (CrewAI) bubbles do not appear** in the dashboard for the cloud path: the planner bridge calls the Agent-Engine planner via non-streaming `query()`, so per-step CrewAI updates only surface if the Agent-Engine planner itself was deployed with a valid `CONTROL_ROOM_STATUS_URL`. Redeploy the planner with the env var set (Step 2 in the deploy sequence above) to enable executor visibility
 
 ### CUJ 2 Implementation Plan: Agent Identity via Agent Engine
 
@@ -551,7 +560,8 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 #### CUJ 2 Open Items
 
 * [ ] Exact `20`-mug live demo prompt -- currently fails mock budget policy as `Over Budget`
-* [ ] Deploy Control Room to Agent Engine -- blocked by ADK `Workflow` source deployment and BYOC container policy error
+* [ ] Deploy Control Room to Agent Engine (Phase 2 in the deploy sequence) -- ADK 2.0.0a3 `Workflow` source deployment needs re-validation against the latest release; BYOC still blocked by container policy error
+* [ ] Re-deploy planner Agent Engine with `CONTROL_ROOM_STATUS_URL` set so per-step Executor (CrewAI) bubbles surface in the dashboard
 * [ ] IAM deny policy (optional extra guardrail; current user lacks `iam.denypolicies.create`)
 
 ### Architecture Gap Analysis

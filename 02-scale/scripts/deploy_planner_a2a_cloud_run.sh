@@ -49,8 +49,18 @@ GOOGLE_CLOUD_PROJECT: "${PROJECT_ID}"
 GOOGLE_CLOUD_LOCATION: "${REGION}"
 PLANNING_AGENT_ENGINE_ID: "${PLANNING_AGENT_ENGINE_ID}"
 GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
-CONTROL_ROOM_STATUS_URL: "${CONTROL_ROOM_URL}/api/push_status"
 YAML
+
+# Only set CONTROL_ROOM_STATUS_URL when CONTROL_ROOM_URL is provided. Without
+# this guard, an unset CONTROL_ROOM_URL would produce "/api/push_status" — a
+# host-less URL that silently drops every status push and breaks the dashboard
+# Planner/Executor bubbles.
+if [[ -n "${CONTROL_ROOM_URL}" ]]; then
+  echo "CONTROL_ROOM_STATUS_URL: \"${CONTROL_ROOM_URL%/}/api/push_status\"" >> "${ENV_FILE}"
+else
+  echo "CONTROL_ROOM_URL not set — skipping CONTROL_ROOM_STATUS_URL."
+  echo "Run 'gcloud run services update scale-planner-a2a --update-env-vars CONTROL_ROOM_STATUS_URL=...' after the Control Room is deployed."
+fi
 
 gcloud run deploy "${SERVICE_NAME}" \
   --project "${PROJECT_ID}" \
