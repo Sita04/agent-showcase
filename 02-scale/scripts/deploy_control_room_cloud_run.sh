@@ -43,12 +43,24 @@ gcloud builds submit \
   --substitutions "_IMAGE_URI=${IMAGE_URI},_UV_EXTRA_INDEX_URL=${UV_URL}" \
   .
 
+# Write env vars to a temp YAML file so values with special characters (URLs,
+# resource names) can't unbalance shell quoting on --set-env-vars.
+ENV_FILE="$(mktemp -t scale-control-room-env.XXXXXX.yaml)"
+trap 'rm -f "${ENV_FILE}"' EXIT
+cat > "${ENV_FILE}" <<YAML
+GOOGLE_CLOUD_PROJECT: "${PROJECT_ID}"
+GOOGLE_CLOUD_LOCATION: "${REGION}"
+GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
+PLANNER_AGENT_URL: "${PLANNER_AGENT_URL}"
+CONTROL_ROOM_AGENT_ENGINE_ID: "${CONTROL_ROOM_AGENT_ENGINE_ID}"
+YAML
+
 gcloud run deploy "${SERVICE_NAME}" \
   --project "${PROJECT_ID}" \
   --region "${REGION}" \
   --image "${IMAGE_URI}" \
   --service-account "${CONTROL_ROOM_SA}" \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GOOGLE_GENAI_USE_VERTEXAI=TRUE,PLANNER_AGENT_URL=${PLANNER_AGENT_URL},CONTROL_ROOM_AGENT_ENGINE_ID=${CONTROL_ROOM_AGENT_ENGINE_ID}" \
+  --env-vars-file "${ENV_FILE}" \
   --concurrency 10 \
   --min-instances 1 \
   --timeout 600 \
