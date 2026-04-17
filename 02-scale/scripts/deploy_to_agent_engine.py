@@ -49,15 +49,13 @@ if not PROJECT_ID:
 REGION = "us-central1"
 PLANNING_SA = f"planning-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
 EXECUTION_SA = f"execution-agent-sa@{PROJECT_ID}.iam.gserviceaccount.com"
-CONTROL_ROOM_STATUS_URL = os.environ.get(
-    "CONTROL_ROOM_STATUS_URL",
-    "https://scale-control-room-YOUR-PROJECT-NUMBER.us-central1.run.app/api/push_status",
-)
+CONTROL_ROOM_STATUS_URL = os.environ.get("CONTROL_ROOM_STATUS_URL", "").strip()
 
-# Warn the user if they are using the default placeholder URL
-if "YOUR-PROJECT-NUMBER" in CONTROL_ROOM_STATUS_URL:
-    print("WARNING: Using placeholder CONTROL_ROOM_STATUS_URL. Progress messages may not appear in UI.")
-    print("Set CONTROL_ROOM_STATUS_URL environment variable to your actual dashboard URL.")
+if not CONTROL_ROOM_STATUS_URL:
+    print(
+        "WARNING: CONTROL_ROOM_STATUS_URL not set. Planner/Executor step messages "
+        "will not appear in the dashboard until you redeploy with the env var set."
+    )
 
 STAGING_BUCKET = f"gs://agent-engine-staging-{PROJECT_ID}"
 
