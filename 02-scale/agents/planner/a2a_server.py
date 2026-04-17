@@ -83,10 +83,7 @@ class PlannerAgentExecutor(AgentExecutor):
                 _push_to_dashboard("Calling remote Planning Agent (non-streaming)...", "system")
                 response = await asyncio.to_thread(planner_engine.query, input=objective)
                 final_report = response
-                
-                if "purchase order" in final_report.lower() or "ordered" in final_report.lower():
-                    final_report += "\nStatus: Success"
-                
+
                 _push_to_dashboard("Cloud-hosted Planning Agent completed.", "system")
                 await updater.add_artifact(
                     [Part(root=TextPart(text="Cloud-hosted Planning Agent completed."))],
