@@ -345,10 +345,63 @@ h3 {
 
 /* Controls */
 .controls {
-    height: 80px;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: 0.75rem;
 }
+
+.cuj-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.cuj-buttons.hidden {
+    display: none;
+}
+
+.cuj-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.9rem;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 0.8rem;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.cuj-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px -8px rgba(15, 23, 42, 0.25);
+}
+
+.cuj-btn .cuj-tag {
+    font-weight: 800;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.cuj-btn .cuj-label {
+    font-weight: 600;
+}
+
+.cuj-btn.cuj-1 { border-color: rgba(59, 130, 246, 0.35); }
+.cuj-btn.cuj-1 .cuj-tag { background: rgba(59, 130, 246, 0.12); color: var(--primary-color); }
+
+.cuj-btn.cuj-2 { border-color: rgba(239, 68, 68, 0.35); }
+.cuj-btn.cuj-2 .cuj-tag { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+
+.cuj-btn.cuj-3 { border-color: rgba(139, 92, 246, 0.35); }
+.cuj-btn.cuj-3 .cuj-tag { background: rgba(139, 92, 246, 0.12); color: var(--accent-color); }
 
 .input-wrapper {
     width: 100%;

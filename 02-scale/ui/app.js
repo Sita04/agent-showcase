@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.13 - COLORED ROLE BUBBLES
-console.log('[DEBUG] Script v1.13 starting load...');
+// Scale Agents Dashboard Logic v1.14 - CUJ QUICK-START BUTTONS
+console.log('[DEBUG] Script v1.14 starting load...');
 
 // Global state
 let currentSessionId = 'demo_session_1';
@@ -49,6 +49,7 @@ async function sendMessage() {
     btn.disabled = true;
     btn.textContent = 'Processing...';
     if (status) status.textContent = 'Running...';
+    setCujButtonsVisible(false);
 
     appendMessage(text, 'user');
     input.value = '';
@@ -100,7 +101,14 @@ async function sendMessage() {
         btn.disabled = false;
         btn.textContent = 'Dispatch';
         if (status) status.textContent = 'Idle';
+        setCujButtonsVisible(true);
     }
+}
+
+function setCujButtonsVisible(visible) {
+    const container = document.getElementById('cuj-buttons');
+    if (!container) return;
+    container.classList.toggle('hidden', !visible);
 }
 
 function handleEvent(event) {
@@ -248,11 +256,23 @@ function appendMessage(content, sender, type = 'normal') {
 window.sendMessage = sendMessage;
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('[DEBUG] DOM Content Loaded - v1.13');
+    console.log('[DEBUG] DOM Content Loaded - v1.14');
     const input = document.getElementById('user-input');
     if (input) {
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
         });
     }
+
+    document.querySelectorAll('#cuj-buttons .cuj-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const prompt = btn.getAttribute('data-prompt') || '';
+            const inputEl = document.getElementById('user-input');
+            if (!inputEl || !prompt) return;
+            inputEl.value = prompt;
+            sendMessage();
+        });
+    });
+
+    setCujButtonsVisible(true);
 });
