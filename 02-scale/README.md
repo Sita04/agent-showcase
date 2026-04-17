@@ -97,7 +97,7 @@ The **Planning Agent** requests a discontinued item (e.g., "XR-7000 Quantum Holo
 
 ## Getting Started
 
-Try the live demo at: **https://scale-control-room-1031003559548.us-central1.run.app**
+Try the live demo at: **https://scale-control-room-761793285222.us-central1.run.app**
 
 | CUJ | Prompt | Expected Outcome |
 | --- | ------ | ---------------- |
@@ -350,21 +350,21 @@ Agent Engine instances scale to zero when idle. Cold starts take 3-5 minutes, so
 uv run python scripts/warmup_agent_engines.py
 
 # Step 2: Warm up Cloud Run services
-curl https://scale-control-room-1031003559548.us-central1.run.app/api/health
-curl https://scale-planner-a2a-1031003559548.us-central1.run.app/.well-known/agent.json
+curl https://scale-control-room-761793285222.us-central1.run.app/api/health
+curl https://scale-planner-a2a-761793285222.us-central1.run.app/.well-known/agent.json
 ```
 
 > **Important:** Always warm up Agent Engine after any redeployment. Run prompts one at a time -- the in-memory dashboard queue supports one session.
 
 ### Live Demo Endpoints
 
-* **Control Room UI:** `https://scale-control-room-1031003559548.us-central1.run.app`
-* **Planner A2A bridge:** `https://scale-planner-a2a-1031003559548.us-central1.run.app`
+* **Control Room UI:** `https://scale-control-room-761793285222.us-central1.run.app`
+* **Planner A2A bridge:** `https://scale-planner-a2a-761793285222.us-central1.run.app`
 
 Smoke checks:
 ```bash
-curl https://scale-control-room-1031003559548.us-central1.run.app/api/health
-curl https://scale-planner-a2a-1031003559548.us-central1.run.app/.well-known/agent.json
+curl https://scale-control-room-761793285222.us-central1.run.app/api/health
+curl https://scale-planner-a2a-761793285222.us-central1.run.app/.well-known/agent.json
 ```
 
 ---
@@ -456,7 +456,7 @@ The CUJ 2 security path works by probing for `aiplatform.indexes.delete` permiss
 
 #### BYOC Status
 
-BYOC remains blocked in this project. A direct Agent Engine `container_spec.image_uri` probe against `us-central1-docker.pkg.dev/n26-learn-build-ai-apps-6/agent-showcase/execution-crew:latest` still fails with:
+BYOC remains blocked in this project. A direct Agent Engine `container_spec.image_uri` probe against `us-central1-docker.pkg.dev/gcp-samples-ic0/agent-showcase/execution-crew:latest` still fails with:
 
 ```text
 One or more users named in the policy do not belong to a permitted customer.
@@ -469,8 +469,8 @@ The CrewAI deployment uses the patched-wheel source path instead of BYOC.
 The patched-wheel source deployment path has been tested successfully. The Execution Crew starts on Agent Engine as:
 
 ```text
-projects/1031003559548/locations/us-central1/reasoningEngines/4212141634835447808
-effective_identity=execution-agent-sa@n26-learn-build-ai-apps-6.iam.gserviceaccount.com
+projects/761793285222/locations/us-central1/reasoningEngines/5557979051605360640
+effective_identity=execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com
 ```
 
 Agent Engine startup logs reached `Application startup complete`, confirming the patched CrewAI wheel and package import fixes are sufficient for runtime startup.
@@ -485,18 +485,18 @@ The native LangGraph planning wrapper deploys successfully via `agent_engines.cr
 Current validated planner deployment:
 
 ```text
-projects/1031003559548/locations/us-central1/reasoningEngines/1293809076299366400
-effective_identity=planning-agent-sa@n26-learn-build-ai-apps-6.iam.gserviceaccount.com
+projects/761793285222/locations/us-central1/reasoningEngines/5193187481788350464
+effective_identity=planning-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com
 ```
 
 The live CUJ 2 security boundary uses a custom least-privilege planner role plus a deterministic IAM permission probe in the security path. The planner security node checks for `aiplatform.indexes.delete` on the project before attempting the destructive action, avoiding the fake-resource `NotFound` ambiguity. The IAM deny policy remains optional extra defense but is not required for the demo.
 
 #### Live Cloud Run Validation (2026-04-09)
 
-The Cloud Run path is live in `n26-learn-build-ai-apps-6`:
+The Cloud Run path is live in `gcp-samples-ic0`:
 
-* Control Room: `https://scale-control-room-1031003559548.us-central1.run.app`
-* Planner A2A bridge: `https://scale-planner-a2a-1031003559548.us-central1.run.app`
+* Control Room: `https://scale-control-room-761793285222.us-central1.run.app`
+* Planner A2A bridge: `https://scale-planner-a2a-761793285222.us-central1.run.app`
 
 Validated live behavior:
 
@@ -516,7 +516,7 @@ Current live limitations:
 
 **Status:** Deployment and the live CUJ 2 IAM boundary are both working.
 
-Agent Engine is active on `n26-learn-build-ai-apps-6` (project `1031003559548`, `us-central1`).
+Agent Engine is active on `gcp-samples-ic0` (project `761793285222`, `us-central1`).
 
 #### Goal
 
@@ -525,18 +525,18 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 #### Phase 1: Deploy Agents to Agent Engine (DONE)
 
 1. **Created three service accounts** with distinct IAM roles (`scripts/setup_iam.sh`):
-   * `planning-agent-sa@n26-learn-build-ai-apps-6.iam.gserviceaccount.com` -- custom `planningAgentRuntime`
-   * `execution-agent-sa@n26-learn-build-ai-apps-6.iam.gserviceaccount.com` -- `aiplatform.user` + `aiplatform.editor` + `serviceusage.serviceUsageConsumer`
-   * `control-room-sa@n26-learn-build-ai-apps-6.iam.gserviceaccount.com` -- custom `planningAgentRuntime`
+   * `planning-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` -- custom `planningAgentRuntime`
+   * `execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com` -- `aiplatform.user` + `aiplatform.editor` + `serviceusage.serviceUsageConsumer`
+   * `control-room-sa@gcp-samples-ic0.iam.gserviceaccount.com` -- custom `planningAgentRuntime`
 2. **Deployed the Planning Agent** (LangGraph) to Agent Engine via native SDK wrapper deployment
-   * Resource: `projects/1031003559548/locations/us-central1/reasoningEngines/1293809076299366400`
+   * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/5193187481788350464`
    * Created directly with `serviceAccount=planning-agent-sa@...`
 3. **Control Room Agent** -- Cloud Run path is live. ADK `Workflow` is still blocked for Agent Engine source deployment, and BYOC is blocked by the container policy error.
 
 #### Phase 2: Enforce IAM Boundaries (DONE)
 
 1. **Project-level role separation alone was insufficient**: `roles/aiplatform.user` includes `aiplatform.indexes.delete`.
-2. **Custom least-privilege role applied**: `planning-agent-sa` now uses `projects/n26-learn-build-ai-apps-6/roles/planningAgentRuntime` with only the permissions needed for Gemini + Agent Engine delegation.
+2. **Custom least-privilege role applied**: `planning-agent-sa` now uses `projects/gcp-samples-ic0/roles/planningAgentRuntime` with only the permissions needed for Gemini + Agent Engine delegation.
 3. **Optional deny policy still missing**: current user lacks `iam.denypolicies.create`, but the custom role is sufficient.
 
 #### Phase 3: Implement & Test CUJ 2 (DONE)
@@ -563,7 +563,7 @@ Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the cur
 | **Execution Agents** | Supply Chain, Customer Support, Inventory agents | One generic logistics agent | Missing specialized agent swarm |
 | **External Systems** | ERP, CRM integrations on both sides | None | No ERP/CRM connectors |
 | **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Planning Agent and Execution Crew both run under their intended service accounts | Full stack is split across Cloud Run + Agent Engine |
-| **Session Management** | Enhanced session management | Partially addressed via ADK 2.0 `InMemoryRunner` & `Session` | Need persistent remote session DB |
+| **Session Management** | Enhanced session management | Deployed Control Room uses **Agent Engine's managed Session Service** (via `AdkApp` default + `VertexAiSessionService`); local dev fallback uses `InMemorySessionService` | Cross-framework session sharing (LangGraph ↔ ADK ↔ CrewAI) still pending — see Q2 "Framework-agnostic session support" below |
 | **Agent Engine** | Core Runtime hosting both layers | Planning Agent + Execution Crew on Agent Engine | Control Room Agent on Agent Engine, Dashboard on Cloud Run |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
 | **A2A end-to-end** | A2A between all agents | A2A only between Control Room and Planner | Wrap Execution Crew in its own A2A server |
@@ -589,6 +589,7 @@ Features available on the Google Agent Engine platform and their usage in this d
 
 | Priority | Feature | Availability | Used in Demo | Use Case |
 | -------- | ------- | ------------ | ------------ | -------- |
+| **P0** | Managed Session Service (`VertexAiSessionService`) | GA | Yes | Persists Control Room session/state in Agent Engine; survives instance restarts and shares sessions across replicas |
 | **P1** | Framework-agnostic session support | Q2 | Not yet | Share session state between LangGraph and CrewAI |
 | **P1** | Custom Session IDs | Preview | Not yet | Correlate restock alerts across agents |
 | **P2** | Configurable session fields | Q2 | Not yet | Store region, budget as session metadata |

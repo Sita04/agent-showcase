@@ -40,8 +40,8 @@ import vertexai
 
 from build_patched_crewai_wheel import build_patched_wheel
 
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
-if not PROJECT_ID or PROJECT_ID == "gcp-samples-ic0":
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "gcp-samples-ic0")
+if not PROJECT_ID:
     print("ERROR: GOOGLE_CLOUD_PROJECT environment variable must be set to your actual project ID.")
     print("Example: GOOGLE_CLOUD_PROJECT=\"your-project-id\" uv run scripts/deploy_to_agent_engine.py ...")
     sys.exit(1)
