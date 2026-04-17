@@ -350,59 +350,6 @@ h3 {
     gap: 0.75rem;
 }
 
-.cuj-buttons {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-}
-
-.cuj-buttons.hidden {
-    display: none;
-}
-
-.cuj-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 0.9rem;
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 999px;
-    font-family: inherit;
-    font-size: 0.8rem;
-    color: #475569;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.cuj-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 18px -8px rgba(15, 23, 42, 0.25);
-}
-
-.cuj-btn .cuj-tag {
-    font-weight: 800;
-    font-size: 0.7rem;
-    letter-spacing: 0.5px;
-    padding: 0.15rem 0.5rem;
-    border-radius: 999px;
-    background: #f1f5f9;
-    color: #475569;
-}
-
-.cuj-btn .cuj-label {
-    font-weight: 600;
-}
-
-.cuj-btn.cuj-1 { border-color: rgba(59, 130, 246, 0.35); }
-.cuj-btn.cuj-1 .cuj-tag { background: rgba(59, 130, 246, 0.12); color: var(--primary-color); }
-
-.cuj-btn.cuj-2 { border-color: rgba(239, 68, 68, 0.35); }
-.cuj-btn.cuj-2 .cuj-tag { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
-
-.cuj-btn.cuj-3 { border-color: rgba(139, 92, 246, 0.35); }
-.cuj-btn.cuj-3 .cuj-tag { background: rgba(139, 92, 246, 0.12); color: var(--accent-color); }
-
 .input-wrapper {
     width: 100%;
     position: relative;
@@ -479,4 +426,258 @@ input[type="text"]:focus {
 
 .node.active .node-icon {
     animation: pulseGlow 2s infinite;
+}
+
+/* Explainer AI */
+.explainer-widget {
+    position: fixed;
+    left: 1.25rem;
+    bottom: 1.25rem;
+    width: min(380px, calc(100vw - 2.5rem));
+    max-height: min(620px, calc(100vh - 2.5rem));
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 18px 50px -24px rgba(15, 23, 42, 0.45);
+    overflow: hidden;
+    z-index: 20;
+}
+
+.explainer-widget.minimized {
+    width: auto;
+}
+
+.explainer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.8rem 0.9rem;
+    background: #0f172a;
+    color: white;
+}
+
+.explainer-title {
+    font-weight: 800;
+    font-size: 0.95rem;
+    letter-spacing: 0;
+}
+
+.explainer-status {
+    margin-top: 0.15rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: #bae6fd;
+}
+
+.explainer-header-actions {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.explainer-icon-btn {
+    height: 32px;
+    min-width: 32px;
+    padding: 0 0.55rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 8px;
+    background: transparent;
+    color: white;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.explainer-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+#tts-toggle.active {
+    background: rgba(56, 189, 248, 0.18);
+    border-color: rgba(56, 189, 248, 0.5);
+    color: #bae6fd;
+}
+
+#explainer-toggle {
+    font-size: 1.1rem;
+    padding: 0;
+    width: 32px;
+}
+
+.explainer-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.85rem;
+    min-height: 0;
+}
+
+.explainer-widget.minimized .explainer-body,
+.explainer-widget.minimized .explainer-status {
+    display: none;
+}
+
+.explainer-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    max-height: 260px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+}
+
+.explainer-message {
+    width: fit-content;
+    max-width: 100%;
+    padding: 0.65rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.explainer-message.agent {
+    align-self: flex-start;
+    background: #f8fafc;
+    color: #334155;
+    border: 1px solid #e2e8f0;
+}
+
+.explainer-message.user {
+    align-self: flex-end;
+    background: #2563eb;
+    color: white;
+}
+
+.explainer-message.event {
+    border-left: 3px solid #14b8a6;
+}
+
+.explainer-message.error {
+    border-left: 3px solid #ef4444;
+}
+
+.explainer-message p {
+    margin-bottom: 0.5rem;
+}
+
+.explainer-message p:last-child {
+    margin-bottom: 0;
+}
+
+.explainer-suggestions,
+.explainer-cuj-guide {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.explainer-suggestions button,
+.explainer-cuj-guide button {
+    min-height: 32px;
+    padding: 0.4rem 0.55rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: white;
+    color: #334155;
+    font-family: inherit;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.explainer-suggestions button:hover,
+.explainer-cuj-guide button:hover {
+    border-color: #2563eb;
+    color: #2563eb;
+    transform: translateY(-1px);
+}
+
+.explainer-cuj-guide button.completed {
+    border-color: rgba(16, 185, 129, 0.45);
+    background: rgba(16, 185, 129, 0.08);
+    color: #047857;
+}
+
+.explainer-cuj-guide button.active {
+    border-color: rgba(37, 99, 235, 0.5);
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+}
+
+.explainer-input-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.explainer-input-row input {
+    min-width: 0;
+    flex: 1;
+    padding: 0.7rem 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    outline: none;
+}
+
+.explainer-input-row input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.explainer-input-row button {
+    padding: 0 0.85rem;
+    border: none;
+    border-radius: 8px;
+    background: #0f172a;
+    color: white;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.explainer-input-row button:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
+
+@media (max-width: 900px) {
+    .glass-container {
+        width: 100%;
+        height: 100vh;
+        border-radius: 0;
+    }
+
+    .sidebar {
+        display: none;
+    }
+
+    .main-content {
+        padding: 1rem;
+        padding-bottom: calc(45vh + 2rem);
+    }
+
+    .message {
+        max-width: 96%;
+    }
+
+    .explainer-widget {
+        left: 0.75rem;
+        bottom: 0.75rem;
+        width: calc(100vw - 1.5rem);
+        max-height: 45vh;
+    }
+
+    body:has(.explainer-widget.minimized) .main-content {
+        padding-bottom: 4.75rem;
+    }
+
+    .explainer-messages {
+        max-height: 140px;
+    }
 }

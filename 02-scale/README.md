@@ -137,6 +137,12 @@ Try the live demo at: **https://scale-control-room-761793285222.us-central1.run.
     echo ‘GOOGLE_CLOUD_PROJECT=your-project-id’ >> .env
     ```
 
+    To enable the in-dashboard Explainer AI (Gemini 3.1 Flash Live), also set:
+
+    ```bash
+    echo ‘GEMINI_API_KEY=your-key’ >> .env   # https://aistudio.google.com/apikey
+    ```
+
 ### Running Locally
 
 #### Option A: Dashboard UI (recommended)
@@ -181,6 +187,19 @@ Dashboard features:
 * **Executor visibility** -- monitor tool actions (product search, budget check, purchase order) as they happen
 * **Orchestration graph** -- visual highlighting of active stage (Planning -> Executing -> Re-planning -> Completed)
 * **Security enforcement** -- instant "Identity Shield" alerts when IAM blocks destructive actions
+* **Explainer AI** -- side widget powered by **Gemini 3.1 Flash Live**: streams a transcript-as-text reply for Q&A and CUJ narration, with optional voice playback toggled by the Narrate button
+
+#### Explainer AI (Gemini 3.1 Flash Live)
+
+The Explainer widget consolidates Q&A, live CUJ narration, and voice into a single Live API session. The dashboard opens one WebSocket (`/api/explainer/live`) and, per turn, the backend opens a fresh Live session with `response_modalities=["AUDIO"]` and `output_audio_transcription`. Audio (24 kHz mono PCM) and the matching transcript stream back together; the transcript is rendered into the chat bubble as it arrives, and the audio is played via the Web Audio API only when the **Narrate** button is on. First chunk typically lands in under a second.
+
+The `gemini-3.1-flash-live-preview` model is currently only served by the Google AI API (not Vertex AI), so the dashboard requires a Gemini API key:
+
+```bash
+echo 'GEMINI_API_KEY=...' >> 02-scale/.env   # get a key at https://aistudio.google.com/apikey
+```
+
+Optional overrides: `EXPLAINER_LIVE_MODEL`, `EXPLAINER_LIVE_VOICE` (default `Kore`).
 
 #### Option B: Standardized A2A Discovery & Invocation (Registry-Ready)
 

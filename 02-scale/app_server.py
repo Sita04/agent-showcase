@@ -4,7 +4,7 @@ import sys
 import json
 import asyncio
 from typing import Optional
-from fastapi import FastAPI, Form, File, UploadFile
+from fastapi import FastAPI, Form, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
@@ -21,6 +21,17 @@ import vertexai
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "gcp-samples-ic0")
 REGION = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
 vertexai.init(project=PROJECT_ID, location=REGION)
+
+BASE_DIR = os.path.dirname(__file__)
+UI_DIR = os.path.join(BASE_DIR, "ui")
+EXPLAINER_REGION = os.environ.get(
+    "EXPLAINER_GOOGLE_CLOUD_LOCATION",
+    os.environ.get("EXPLAINER_REGION", "us-central1"),
+)
+EXPLAINER_KNOWLEDGE_FILE = os.path.join(UI_DIR, "demo_knowledge.md")
+EXPLAINER_LIVE_MODEL = os.environ.get("EXPLAINER_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+EXPLAINER_LIVE_VOICE = os.environ.get("EXPLAINER_LIVE_VOICE", "Kore")
+EXPLAINER_LIVE_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 # Resolve which Control Room agent to use:
 #   * env var unset      → fall back to deployment_metadata.json (convenience)
@@ -149,6 +160,160 @@ if not control_room_engine:
 @api_app.get("/health")
 async def health_check():
     return {"status": "ok", "message": "FastAPI is running"}
+
+
+def _load_explainer_knowledge() -> str:
+    try:
+        with open(EXPLAINER_KNOWLEDGE_FILE, encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return (
+            "Scale Agents is a multi-agent retail IT orchestration demo. "
+            "Use the dashboard's CUJ buttons to run the happy path, Identity Shield, "
+            "and re-planning journeys."
+        )
+
+
+def _build_chat_prompt(message: str, history: list, state: dict) -> str:
+    knowledge = _load_explainer_knowledge()
+    history_text = "\n".join(
+        f"{(m or {}).get('role', 'user')}: {(m or {}).get('text', '')}"
+        for m in (history or [])[-10:]
+    )
+    return f"""
+You are the Explainer AI for the Scale Agents Control Room demo.
+Use only the public demo knowledge and the current dashboard state below.
+Be concise, concrete, and helpful for a first-time conference/demo user.
+When useful, guide the user toward trying CUJ 1, then CUJ 2, then CUJ 3.
+Do not mention internal project IDs, private deployment steps, service account emails, or implementation logs.
+
+PUBLIC DEMO KNOWLEDGE:
+{knowledge}
+
+CURRENT DASHBOARD STATE:
+{json.dumps(state or {}, ensure_ascii=False)}
+
+RECENT EXPLAINER CHAT:
+{history_text}
+
+USER QUESTION:
+{message}
+""".strip()
+
+
+def _build_observe_prompt(current_event, recent_events, active_cuj, completed_cujs, final_report) -> str:
+    knowledge = _load_explainer_knowledge()
+    return f"""
+You are narrating the Scale Agents live demo as it runs.
+Explain what is happening now in at most two short sentences.
+Use plain public-facing language and avoid internal implementation details.
+If this is a final report, summarize how the multi-agent system handled the CUJ.
+Do not suggest, recommend, or mention any other CUJ — focus only on the current event.
+
+PUBLIC DEMO KNOWLEDGE:
+{knowledge}
+
+ACTIVE CUJ:
+{json.dumps(active_cuj, ensure_ascii=False)}
+
+COMPLETED CUJS:
+{json.dumps(completed_cujs or [], ensure_ascii=False)}
+
+CURRENT EVENT:
+{json.dumps(current_event or {}, ensure_ascii=False)}
+
+RECENT AGENT EVENTS:
+{json.dumps((recent_events or [])[-8:], ensure_ascii=False)}
+
+FINAL REPORT:
+{final_report or ''}
+""".strip()
+
+
+@api_app.get("/explainer/knowledge")
+async def explainer_knowledge():
+    return {"knowledge": _load_explainer_knowledge()}
+
+
+@api_app.websocket("/explainer/live")
+async def explainer_live(ws: WebSocket):
+    await ws.accept()
+    from google import genai
+    from google.genai import types
+
+    if EXPLAINER_LIVE_API_KEY:
+        client = genai.Client(vertexai=False, api_key=EXPLAINER_LIVE_API_KEY)
+    else:
+        client = genai.Client(vertexai=True, project=PROJECT_ID, location=EXPLAINER_REGION)
+
+    config = types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        output_audio_transcription=types.AudioTranscriptionConfig(),
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=EXPLAINER_LIVE_VOICE)
+            )
+        ),
+    )
+
+    try:
+        while True:
+            try:
+                raw = await ws.receive_text()
+            except WebSocketDisconnect:
+                return
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                continue
+
+            kind = payload.get("kind")
+            if kind == "chat":
+                prompt = _build_chat_prompt(
+                    payload.get("message", ""),
+                    payload.get("history", []),
+                    payload.get("state", {}),
+                )
+            elif kind == "observe":
+                prompt = _build_observe_prompt(
+                    payload.get("current_event", {}),
+                    payload.get("recent_events", []),
+                    payload.get("active_cuj"),
+                    payload.get("completed_cujs", []),
+                    payload.get("final_report", ""),
+                )
+            else:
+                continue
+
+            try:
+                async with client.aio.live.connect(model=EXPLAINER_LIVE_MODEL, config=config) as session:
+                    await session.send_realtime_input(text=prompt)
+                    async for response in session.receive():
+                        sc = getattr(response, "server_content", None)
+                        if not sc:
+                            continue
+                        if sc.model_turn:
+                            for part in sc.model_turn.parts:
+                                inline = getattr(part, "inline_data", None)
+                                if inline and inline.data:
+                                    await ws.send_bytes(inline.data)
+                        ot = getattr(sc, "output_transcription", None)
+                        if ot and getattr(ot, "text", ""):
+                            await ws.send_text(json.dumps({"type": "transcript", "delta": ot.text}))
+                        if getattr(sc, "turn_complete", False):
+                            break
+                await ws.send_text(json.dumps({"type": "turn_complete"}))
+            except Exception as e:
+                print(f"[Explainer] live turn failed: {e}")
+                await ws.send_text(json.dumps({"type": "error", "message": str(e)[:200]}))
+    except WebSocketDisconnect:
+        return
+    except Exception as e:
+        print(f"[Explainer] live WS failed: {e}")
+        try:
+            await ws.close(code=1011)
+        except Exception:
+            pass
 
 def _enqueue_dashboard_push(name: str, text: str, role: str) -> None:
     """Translate a side-channel push into the right dashboard event shape."""
@@ -332,9 +497,6 @@ def build_a2a_host(public_url: str):
     server = A2AStarletteApplication(agent_card=agent_card, http_handler=handler)
     return server.build()
 
-# Mount static files
-ui_dir = os.path.join(os.path.dirname(__file__), "ui")
-
 port = int(os.environ.get("PORT", 8080))
 public_url = os.environ.get("AGENT_URL", f"http://localhost:{port}/")
 
@@ -349,7 +511,7 @@ combined_app = FastAPI()
 
 # Order matters: more specific routes first
 combined_app.mount("/api", api_app)
-combined_app.mount("/ui", StaticFiles(directory=ui_dir, html=True))
+combined_app.mount("/ui", StaticFiles(directory=UI_DIR, html=True))
 
 @combined_app.get("/")
 async def root_redirect():
