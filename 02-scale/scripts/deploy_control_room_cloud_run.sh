@@ -29,8 +29,11 @@ echo ""
 # Copy uv.lock from root to context directory
 cp ../uv.lock .
 
-# Get access token for private registry
-TOKEN=$(gcloud auth print-access-token)
+# Get access token for private registry.
+# If CORP_ACCESS_TOKEN is set (e.g. fetched from a corp machine), use it
+# instead of minting one locally — handy when the corp account isn't logged
+# in on this machine.
+TOKEN="${CORP_ACCESS_TOKEN:-$(gcloud auth print-access-token)}"
 UV_URL="https://oauth2accesstoken:${TOKEN}@us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/"
 
 # Read Control Room Agent ID from metadata if present

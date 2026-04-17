@@ -292,6 +292,11 @@ There is a chicken-and-egg dependency: the Planner A2A bridge needs the Dashboar
 export CLOUDSDK_CORE_ACCOUNT=you@google.com
 export GOOGLE_CLOUD_PROJECT=gcp-samples-ic0
 
+# If your corp account isn't logged in on this machine, grab a token
+# from a corp machine and pass it instead:
+#   gcloud auth print-access-token --account=you@google.com   # on corp machine
+#   CORP_ACCESS_TOKEN=ya29... bash scripts/deploy_control_room_cloud_run.sh
+
 # 1. Create service accounts + IAM roles (idempotent)
 bash scripts/setup_iam.sh
 
