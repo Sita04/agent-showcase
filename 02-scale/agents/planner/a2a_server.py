@@ -65,9 +65,6 @@ class PlannerAgentExecutor(AgentExecutor):
 
         try:
             print(f"\n🚀 [A2A Executor] Triggering LangGraph with objective: '{objective}'")
-            # Push directly to dashboard — A2A message/send doesn't stream artifacts
-            from agents.planner.graph import _push_to_dashboard
-            _push_to_dashboard("Setting up the LangGraph planning workflow...", "system")
             await updater.add_artifact(
                 [Part(root=TextPart(text="Setting up the LangGraph planning workflow..."))],
                 name="planner_step",
@@ -75,16 +72,13 @@ class PlannerAgentExecutor(AgentExecutor):
 
             planner_engine = _build_planner_agent_engine()
             if planner_engine is not None:
-                _push_to_dashboard("Delegating to the cloud-hosted Planning Agent on Agent Engine...", "system")
                 await updater.add_artifact(
                     [Part(root=TextPart(text="Delegating to the cloud-hosted Planning Agent on Agent Engine..."))],
                     name="planner_step",
                 )
-                _push_to_dashboard("Calling remote Planning Agent (non-streaming)...", "system")
                 response = await asyncio.to_thread(planner_engine.query, input=objective)
                 final_report = response
 
-                _push_to_dashboard("Cloud-hosted Planning Agent completed.", "system")
                 await updater.add_artifact(
                     [Part(root=TextPart(text="Cloud-hosted Planning Agent completed."))],
                     name="planner_step",
@@ -109,7 +103,6 @@ class PlannerAgentExecutor(AgentExecutor):
             initial_state: PlanState = {"objective": objective}
 
             # 3. Execute the graph asynchronously with streaming
-            _push_to_dashboard("Planning workflow ready. Starting execution...", "system")
             await on_graph_update("Planning workflow ready. Starting execution...")
             final_report = "Execution completed, but no report was generated."
             # Track whether the security path produced this report so we can label

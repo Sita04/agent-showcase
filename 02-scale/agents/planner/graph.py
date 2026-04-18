@@ -100,9 +100,6 @@ class PlannerNodes:
     async def analyze_alert(self, state: PlanState) -> PlanState:
         """Node 1: Extract intent from the raw objective string."""
         logger.info("--- [Planner] Step 1: Analyzing Alert ---")
-        _push_to_dashboard("Understanding the procurement request...", "system")
-        if self.on_update:
-            await self.on_update("Understanding the procurement request...")
 
         objective = state.get("objective", "")
 
@@ -201,7 +198,6 @@ class PlannerNodes:
                     "quantity": quantity,
                 })
                 
-                _push_to_dashboard("Calling Execution Crew (non-streaming)...", "system")
                 result = await asyncio.to_thread(self.crew_engine.query, input=input_payload)
             else:
                 # Fallback: run CrewAI in-process (local dev)
@@ -402,10 +398,7 @@ class PlannerNodes:
     async def generate_report(self, state: PlanState) -> PlanState:
         """Node 3: Synthesize the final outcome."""
         logger.info("--- [Planner] Step 3: Generating Final Report ---")
-        _push_to_dashboard("Generating the final procurement report...", "system")
-        if self.on_update:
-            await self.on_update("Generating the final procurement report...")
-        
+
         prompt = REPORT_GENERATOR_PROMPT.format(
             objective=state.get("objective", "Unknown Objective"),
             execution_result=state.get("execution_result", "No result returned.")

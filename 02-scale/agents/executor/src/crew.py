@@ -67,14 +67,12 @@ class LogisticsExecutionCrew:
                 status_callback(msg)
 
         # Connect to both MCP servers using an ExitStack to manage multiple context managers
-        _status("Connecting to the product catalog (Vector Search)...")
         mcp_server = get_mcp_server()
         oms_mcp_server = get_mock_oms_mcp()
 
         with ExitStack() as stack:
             vector_mcp_tools = stack.enter_context(mcp_server)
             oms_mcp_tools = stack.enter_context(oms_mcp_server)
-            _status("Product catalog and order management systems connected.")
 
             # Create Agents
             sourcing_agent = self.agents.sourcing_specialist(mcp_tools=vector_mcp_tools)

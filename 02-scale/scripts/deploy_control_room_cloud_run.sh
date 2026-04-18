@@ -40,6 +40,17 @@ UV_URL="https://oauth2accesstoken:${TOKEN}@us-python.pkg.dev/artifact-foundry-pr
 CONTROL_ROOM_AGENT_ENGINE_ID=$(python3 -c "import json; print(json.load(open('deployment_metadata.json')).get('control_room_agent_engine_id', ''))" 2>/dev/null || echo "")
 echo "Control Room Agent ID from metadata: ${CONTROL_ROOM_AGENT_ENGINE_ID}"
 
+# Read GEMINI_API_KEY from .env if not already set in the environment.
+# The Explainer Live API needs this; without it, the SDK falls back to Vertex
+# where gemini-3.1-flash-live-preview is not served. `--env-vars-file` below
+# REPLACES env vars on each deploy, so we must forward it explicitly every time.
+if [[ -z "${GEMINI_API_KEY:-}" && -f .env ]]; then
+  GEMINI_API_KEY=$(grep -E '^GEMINI_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+fi
+if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+  echo "WARNING: GEMINI_API_KEY not set (checked env and .env). Explainer Live API will fail."
+fi
+
 gcloud builds submit \
   --project "${PROJECT_ID}" \
   --config cloudbuild-control-room.yaml \
@@ -56,6 +67,7 @@ GOOGLE_CLOUD_LOCATION: "${REGION}"
 GOOGLE_GENAI_USE_VERTEXAI: "TRUE"
 PLANNER_AGENT_URL: "${PLANNER_AGENT_URL}"
 CONTROL_ROOM_AGENT_ENGINE_ID: "${CONTROL_ROOM_AGENT_ENGINE_ID}"
+GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
 YAML
 
 gcloud run deploy "${SERVICE_NAME}" \

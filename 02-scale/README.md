@@ -130,18 +130,22 @@ Try the live demo at: **https://scale-control-room-761793285222.us-central1.run.
     uv sync
     ```
 
-3. **Environment setup** (optional, for deep agent tracing):
+3. **Environment setup.** Create `02-scale/.env`:
 
     ```bash
-    echo ‘CREWAI_TRACING_ENABLED=true’ > .env
-    echo ‘GOOGLE_CLOUD_PROJECT=your-project-id’ >> .env
+    # Required for the in-dashboard Explainer AI (Gemini 3.1 Flash Live).
+    # The model is only served by the Google AI API, not Vertex AI, so a
+    # studio-issued key is mandatory. Get one at https://aistudio.google.com/apikey.
+    echo 'GEMINI_API_KEY=your-key' > .env
+
+    # Required for the agents (Vertex AI calls).
+    echo 'GOOGLE_CLOUD_PROJECT=your-project-id' >> .env
+
+    # Optional: enable CrewAI's deep agent tracing.
+    echo 'CREWAI_TRACING_ENABLED=true' >> .env
     ```
 
-    To enable the in-dashboard Explainer AI (Gemini 3.1 Flash Live), also set:
-
-    ```bash
-    echo ‘GEMINI_API_KEY=your-key’ >> .env   # https://aistudio.google.com/apikey
-    ```
+    The same `02-scale/.env` is reused by `scripts/deploy_control_room_cloud_run.sh`, which greps `GEMINI_API_KEY` and forwards it into the Cloud Run env-vars file on every deploy. Set the key once locally and Cloud Run picks it up automatically.
 
 ### Running Locally
 
@@ -219,7 +223,11 @@ The `gemini-3.1-flash-live-preview` model is currently only served by the Google
 echo 'GEMINI_API_KEY=...' >> 02-scale/.env   # get a key at https://aistudio.google.com/apikey
 ```
 
+The same `02-scale/.env` is used in two places: locally `python-dotenv` loads it on dashboard startup, and `scripts/deploy_control_room_cloud_run.sh` greps the `GEMINI_API_KEY` line and forwards it into the Cloud Run env-vars file on each deploy. So you only set the key once.
+
 Optional overrides: `EXPLAINER_LIVE_MODEL`, `EXPLAINER_LIVE_VOICE` (default `Kore`).
+
+> **Authoring new agent events.** Each event pushed to `/api/push_status` carries a `role` (`executor`, `planner`, `control_room`, `a2a`) that the Explainer prompt uses to attribute the narration ("The Execution Agent is..."). Avoid pushing events with `role="system"` for setup / filler phases ("Setting up the workflow...", "Connecting to the catalog..."). On Cloud Run, agent steps arrive in tight bursts, and the client-side debouncer narrates only the last event in each window — if a `role="system"` filler wins, the narration collapses to "The system is..." instead of a role-specific sentence. Keep pushes scoped to meaningful, role-attributed milestones.
 
 #### Option B: Standardized A2A Discovery & Invocation (Registry-Ready)
 
@@ -335,8 +343,12 @@ export CLOUDSDK_CORE_ACCOUNT=you@google.com
 export GOOGLE_CLOUD_PROJECT=gcp-samples-ic0
 
 # If your corp account isn't logged in on this machine, grab a token
-# from a corp machine and pass it instead:
-#   gcloud auth print-access-token --account=you@google.com   # on corp machine
+# from a corp machine and pass it instead. Use an ADC token, NOT
+# `gcloud auth print-access-token` — the gcloud CLI token is bound to
+# Certificate-Based Access (CBA) and Cloud Build will reject it when
+# fetching from the internal Python registry.
+#   gcloud auth application-default login                              # on corp machine, once
+#   gcloud auth application-default print-access-token                 # on corp machine, per deploy
 #   CORP_ACCESS_TOKEN=ya29... bash scripts/deploy_control_room_cloud_run.sh
 
 # 1. Create service accounts + IAM roles (idempotent)
@@ -379,6 +391,13 @@ PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.a
 
 Deployment assets: `Dockerfile.planner-a2a`, `Dockerfile.control-room`, `cloudbuild-*.yaml`, `scripts/deploy_*_cloud_run.sh`, `scripts/deploy_to_agent_engine.py`.
 
+#### Troubleshooting (Deploy)
+
+| Symptom | Likely Cause | Fix |
+| ------- | ------------ | --- |
+| `deploy_to_agent_engine.py` fails with `400 INVALID_ARGUMENT ... reasoning_engine.spec.deployment_spec.env[0].value: Required field is not set.` | `CONTROL_ROOM_STATUS_URL` was unset in the shell, so the deploy passed an empty `env[0].value` to the Agent Engine API. | Export the variable before running the deploy: `CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" uv run scripts/deploy_to_agent_engine.py --crew-only` (and same for `--planning-only`). |
+| Cloud Build fails inside `uv sync` with `401 Unauthorized` against `us-python.pkg.dev/artifact-foundry-prod/...` | `CORP_ACCESS_TOKEN` expired (1 h lifetime) or was a CLI token (CBA-restricted). | Mint a fresh ADC token on a corp machine: `gcloud auth application-default print-access-token`, then re-run the deploy with `CORP_ACCESS_TOKEN=ya29... bash scripts/deploy_planner_a2a_cloud_run.sh`. |
+
 ### Redeploying Just the Dashboard
 
 To ship UI / `app_server.py` / `demo_knowledge.md` changes without touching the Planner A2A bridge or any Agent Engine instance:
@@ -390,6 +409,8 @@ PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.a
   bash scripts/deploy_control_room_cloud_run.sh
 ```
 
+If running from a non-corp machine, also export `CORP_ACCESS_TOKEN` from an ADC token (`gcloud auth application-default print-access-token`, run on a corp machine — see [End-to-End Deploy Order](#end-to-end-deploy-order) for why the gcloud CLI token won't work).
+
 Verify the new revision is live by checking the version stamp in the served HTML (e.g. `Control Room Dashboard v1.28`) -- a `git push` alone does **not** trigger a redeploy.
 
 **Cloud Run env vars the Dashboard depends on** (set once with `gcloud run services update scale-control-room --region=us-central1 --update-env-vars KEY=VALUE`; they survive subsequent redeploys):
@@ -397,8 +418,10 @@ Verify the new revision is live by checking the version stamp in the served HTML
 | Env var | Required for | Notes |
 | ------- | ------------ | ----- |
 | `PLANNER_AGENT_URL` | All workflows | Set automatically by `deploy_control_room_cloud_run.sh` from the script-time value. |
-| `GEMINI_API_KEY` | Explainer (Live API) | The `gemini-3.1-flash-live-preview` model is only served by the Google AI API, not Vertex AI. Without this, the Explainer widget renders but every Live API call returns `401`. Get a key at https://aistudio.google.com/apikey. |
+| `GEMINI_API_KEY` | Explainer (Live API) | The `gemini-3.1-flash-live-preview` model is only served by the Google AI API, not Vertex AI. Without this, the Explainer widget renders but every Live API call closes with WebSocket code `1008` ("Publisher Model … not found"). The deploy script forwards this from the local `.env` automatically; get a key at https://aistudio.google.com/apikey if you don't have one. |
 | `CONTROL_ROOM_AGENT_ENGINE_ID` | Optional | When set to a `projects/.../reasoningEngines/...` resource name, the Dashboard invokes the Control Room on Agent Engine instead of running it in-process. Leave unset (or set to `local`) to run in-process. |
+
+> **Note:** the deploy script writes the env-vars file using `--env-vars-file`, which **replaces** all env vars on each deploy. Anything set via `gcloud run services update --update-env-vars …` will be wiped on the next redeploy — bake new vars into `deploy_control_room_cloud_run.sh` (or `.env` for `GEMINI_API_KEY`) instead.
 
 ### Agent Engine Deployment Details
 
