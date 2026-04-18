@@ -45,7 +45,7 @@ giving one agent every permission.
 
 ## CUJ 1: Happy Path Restock
 
-Prompt: "Restock 2 Pixel 7 phones for the Tokyo office"
+Prompt: "Restock 2 Google Droid figures for the Tokyo office"
 
 Expected flow:
 
@@ -108,9 +108,38 @@ The agent messages in the dashboard are color-coded by role:
 - Executor: product search, budget check, and purchase order work.
 - Re-Planner: recovery logic after retryable failures.
 
+## Products and Technologies
+
+The demo combines several Google and open-source agent technologies. When a
+user asks for technical detail beyond what is summarized here, use Google
+Search to fetch the latest official information from these reference pages.
+
+- Google Agent Development Kit (ADK): the Control Room workflow runtime.
+  Reference: https://google.github.io/adk-docs/
+- LangGraph: the state-machine framework powering the Planning Agent.
+  Reference: https://langchain-ai.github.io/langgraph/
+- CrewAI: the multi-role workflow framework powering the Execution Agent.
+  Reference: https://www.crewai.com/
+- Agent2Agent (A2A) Protocol: the standard agent-to-agent message interface
+  the Control Room uses to invoke the planner.
+  Reference: https://a2a-protocol.org/
+- Model Context Protocol (MCP): the tool adapter standard the Execution Agent
+  uses to call product search and the mock order management system.
+  Reference: https://modelcontextprotocol.io/
+- Vertex AI Agent Engine: the managed runtime that hosts deployed agents.
+  Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/overview
+- Gemini Live API: powers this Explainer's real-time voice narration and chat.
+  Reference: https://ai.google.dev/gemini-api/docs/live
+- Gemini 3 family models: the underlying LLMs used across the agents.
+  Reference: https://deepmind.google/technologies/gemini/
+
 ## Public Explanation Boundaries
 
 When explaining the demo, keep the focus on architecture, agent handoffs,
 security concepts, and the three user journeys. Do not expose private project
 IDs, service account emails, internal deployment logs, or non-public operational
 details.
+
+When answering deeper technical questions about any product or technology
+above, prefer Google Search grounding so answers reflect the current docs.
+Cite the official reference page when you do.

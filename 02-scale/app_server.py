@@ -182,10 +182,16 @@ def _build_chat_prompt(message: str, history: list, state: dict) -> str:
     )
     return f"""
 You are the Explainer AI for the Scale Agents Control Room demo.
-Use only the public demo knowledge and the current dashboard state below.
+Use the public demo knowledge and the current dashboard state below as your primary source.
 Be concise, concrete, and helpful for a first-time conference/demo user.
 When useful, guide the user toward trying CUJ 1, then CUJ 2, then CUJ 3.
 Do not mention internal project IDs, private deployment steps, service account emails, or implementation logs.
+
+When the user asks for technical detail about any product or technology used in the demo
+(ADK, LangGraph, CrewAI, A2A Protocol, MCP, Vertex AI Agent Engine, Gemini Live API,
+Gemini 3 models, or related tools), call the google_search tool to fetch the latest
+official information before answering. Prefer the reference URLs listed in the demo
+knowledge as starting points. Keep the answer short and grounded in the search results.
 
 PUBLIC DEMO KNOWLEDGE:
 {knowledge}
@@ -246,15 +252,20 @@ async def explainer_live(ws: WebSocket):
     else:
         client = genai.Client(vertexai=True, project=PROJECT_ID, location=EXPLAINER_REGION)
 
-    config = types.LiveConnectConfig(
-        response_modalities=["AUDIO"],
-        output_audio_transcription=types.AudioTranscriptionConfig(),
-        speech_config=types.SpeechConfig(
-            voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=EXPLAINER_LIVE_VOICE)
-            )
-        ),
-    )
+    def _build_live_config(use_search: bool):
+        # google_search grounding is only enabled for chat turns so narration
+        # stays low-latency and on-script.
+        tools = [types.Tool(google_search=types.GoogleSearch())] if use_search else None
+        return types.LiveConnectConfig(
+            response_modalities=["AUDIO"],
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=EXPLAINER_LIVE_VOICE)
+                )
+            ),
+            tools=tools,
+        )
 
     try:
         while True:
@@ -285,8 +296,9 @@ async def explainer_live(ws: WebSocket):
             else:
                 continue
 
+            live_config = _build_live_config(use_search=(kind == "chat"))
             try:
-                async with client.aio.live.connect(model=EXPLAINER_LIVE_MODEL, config=config) as session:
+                async with client.aio.live.connect(model=EXPLAINER_LIVE_MODEL, config=live_config) as session:
                     await session.send_realtime_input(text=prompt)
                     async for response in session.receive():
                         sc = getattr(response, "server_content", None)

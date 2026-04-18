@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.18 - Unified Live API (transcript + audio)
-console.log('[DEBUG] Script v1.18 starting load...');
+// Scale Agents Dashboard Logic v1.27 - Live WS reconnect with backoff + mid-turn retry
+console.log('[DEBUG] Script v1.27 starting load...');
 
 // Global state
 let currentSessionId = 'demo_session_1';
@@ -8,6 +8,7 @@ let lastMessageText = '';
 let currentBubble = null;   // DOM element of the active bubble
 let currentBubbleRole = null; // role key of the active bubble
 let lastFinalReport = '';   // dedup adk_event final reports
+let flowFinalized = false;  // once COMPLETED, lock flow until next sendMessage
 let explainerHistory = [];
 let recentAgentEvents = [];
 let explainerObservationTimer = null;
@@ -20,6 +21,12 @@ let ttsEnabled = false;
 let liveSocket = null;
 let liveSocketConnecting = null;
 let liveTurnQueue = Promise.resolve();
+let liveConnected = false;
+let explainerBusy = false;
+const LIVE_RECONNECT_MAX_ATTEMPTS = 5;
+const LIVE_RECONNECT_BASE_MS = 500;
+const LIVE_RECONNECT_MAX_MS = 10000;
+const LIVE_TURN_RETRY_LIMIT = 1;
 let liveAudioCtx = null;
 let liveNextPlayTime = 0;
 const LIVE_SAMPLE_RATE = 24000;
@@ -29,7 +36,7 @@ const CUJS = [
         id: '1',
         tag: 'CUJ 1',
         title: 'Happy Path',
-        prompt: 'Restock 2 Pixel 7 phones for the Tokyo office',
+        prompt: 'Restock 2 Google Droid figures for the Tokyo office',
         summary: 'Normal restock with sourcing, budget check, and purchase order.'
     },
     {
@@ -69,6 +76,7 @@ async function sendMessage() {
     currentBubble = null;
     currentBubbleRole = null;
     lastFinalReport = '';
+    flowFinalized = false;
     const input = document.getElementById('user-input');
     const btn = document.getElementById('send-btn');
     const status = document.getElementById('orchestrator-status');
@@ -157,15 +165,19 @@ function handleEvent(event) {
     let cujForExplainer = activeCuj;
     const nodes = {
         'START': document.getElementById('node-start'),
-        'control_room_orchestrator': document.getElementById('node-orchestrator'),
-        'replanner': document.getElementById('node-replanner'),
-        'COMPLETED': document.getElementById('node-completed')
+        'control_room': document.getElementById('node-control-room'),
+        'planner': document.getElementById('node-planner'),
+        'executor': document.getElementById('node-executor'),
+        'COMPLETED': document.getElementById('node-completed'),
+        // legacy aliases from upstream events
+        'control_room_orchestrator': document.getElementById('node-control-room'),
+        'replanner': document.getElementById('node-planner')
     };
 
     function setActiveNode(nodeId) {
-        Object.values(nodes).forEach(n => n && n.classList.remove('active'));
+        new Set(Object.values(nodes)).forEach(n => n && n.classList.remove('active'));
         if (nodeId.startsWith('replanner_agent')) {
-            if (nodes['replanner']) nodes['replanner'].classList.add('active');
+            if (nodes['planner']) nodes['planner'].classList.add('active');
         } else if (nodes[nodeId]) {
             nodes[nodeId].classList.add('active');
         }
@@ -176,21 +188,25 @@ function handleEvent(event) {
         const styleType = event.name === 'replanning' ? 'replanning' : (ROLE_STYLES[role] || 'system');
         appendStatusLine(event.text, role, styleType);
 
-        if (event.name === 'replanning') {
-            setActiveNode('replanner');
+        if (!flowFinalized) {
+            if (event.name === 'replanning') {
+                setActiveNode('planner');
+            } else if (role === 'control_room' || role === 'planner' || role === 'executor') {
+                setActiveNode(role);
+            }
         }
     } else if (event.type === 'adk_event') {
-        if (event.node_name && event.node_name !== 'N/A') setActiveNode(event.node_name);
         if (event.output) {
             removeThinkingIndicator();
             currentBubble = null;
             currentBubbleRole = null;
             const output = event.output;
             const text = typeof output === 'string' ? output : (output.report || '');
+            setActiveNode('COMPLETED');
+            flowFinalized = true;
             if (text && text !== lastFinalReport) {
                 lastFinalReport = text;
                 appendMessage(text, 'agent', output.status === 'Blocked' ? 'security' : 'result');
-                setActiveNode('COMPLETED');
                 finalReportForExplainer = text;
                 if (activeCuj) {
                     cujForExplainer = activeCuj;
@@ -199,6 +215,8 @@ function handleEvent(event) {
                     updateExplainerCujButtons();
                 }
             }
+        } else if (event.node_name && event.node_name !== 'N/A' && !flowFinalized) {
+            setActiveNode(event.node_name);
         }
     }
 
@@ -420,8 +438,12 @@ function getLiveSocket() {
         ws.onopen = () => {
             liveSocket = ws;
             liveSocketConnecting = null;
+            setLiveConnected(true);
             ws.addEventListener('close', () => {
-                if (liveSocket === ws) liveSocket = null;
+                if (liveSocket === ws) {
+                    liveSocket = null;
+                    setLiveConnected(false);
+                }
             });
             resolve(ws);
         };
@@ -433,51 +455,106 @@ function getLiveSocket() {
     return liveSocketConnecting;
 }
 
-function runLiveTurn(payload, bubble) {
-    const job = liveTurnQueue.then(async () => {
-        let ws;
-        try {
-            ws = await getLiveSocket();
-        } catch (e) {
-            setBubbleContent(bubble, 'Live connection failed: ' + (e?.message || 'WebSocket error'), false);
-            return '';
-        }
-        let transcript = '';
-        return await new Promise((resolve) => {
-            const onMessage = (event) => {
-                if (typeof event.data === 'string') {
-                    let msg;
-                    try { msg = JSON.parse(event.data); } catch (_) { return; }
-                    if (msg.type === 'transcript' && msg.delta) {
-                        transcript += msg.delta;
-                        setBubbleContent(bubble, transcript, false);
-                    } else if (msg.type === 'error') {
-                        setBubbleContent(bubble, transcript || 'Explainer error: ' + (msg.message || 'unknown'), false);
-                        cleanup();
-                        resolve(transcript);
-                    } else if (msg.type === 'turn_complete') {
-                        if (transcript) setBubbleContent(bubble, transcript, true);
-                        cleanup();
-                        resolve(transcript);
-                    }
-                } else if (event.data instanceof ArrayBuffer) {
-                    if (!ttsEnabled) return;
-                    try { playPcmChunk(event.data); } catch (e) { console.warn('[Live] audio chunk failed', e); }
+let liveReconnectInFlight = false;
+
+async function getLiveSocketWithRetry() {
+    if (liveReconnectInFlight) {
+        // A loop is already active — wait for the next OPEN.
+        return new Promise((resolve, reject) => {
+            const interval = setInterval(() => {
+                if (liveSocket && liveSocket.readyState === WebSocket.OPEN) {
+                    clearInterval(interval);
+                    resolve(liveSocket);
+                } else if (!liveReconnectInFlight) {
+                    clearInterval(interval);
+                    reject(new Error('Reconnect loop ended'));
                 }
-            };
-            const onClose = () => { cleanup(); resolve(transcript); };
-            const cleanup = () => {
-                ws.removeEventListener('message', onMessage);
-                ws.removeEventListener('close', onClose);
-            };
-            ws.addEventListener('message', onMessage);
-            ws.addEventListener('close', onClose);
-            ws.send(JSON.stringify(payload));
+            }, 250);
         });
+    }
+    liveReconnectInFlight = true;
+    try {
+        let attempt = 0;
+        while (true) {
+            try {
+                const sock = await getLiveSocket();
+                return sock;
+            } catch (e) {
+                const delay = Math.min(LIVE_RECONNECT_BASE_MS * Math.pow(2, attempt), LIVE_RECONNECT_MAX_MS);
+                attempt += 1;
+                console.warn(`[Live] connection failed (attempt ${attempt}), retrying in ${delay}ms`);
+                setExplainerStatus(`Reconnecting (attempt ${attempt})…`);
+                await new Promise(r => setTimeout(r, delay));
+            }
+        }
+    } finally {
+        liveReconnectInFlight = false;
+    }
+}
+
+async function attemptLiveTurn(payload, bubble, attempt) {
+    let ws;
+    try {
+        ws = await getLiveSocketWithRetry();
+    } catch (e) {
+        setBubbleContent(bubble, 'Live connection failed: ' + (e?.message || 'WebSocket error'), false);
+        return '';
+    }
+    let transcript = '';
+    let completed = false;
+    const result = await new Promise((resolve) => {
+        const onMessage = (event) => {
+            if (typeof event.data === 'string') {
+                let msg;
+                try { msg = JSON.parse(event.data); } catch (_) { return; }
+                if (msg.type === 'transcript' && msg.delta) {
+                    transcript += msg.delta;
+                    setBubbleContent(bubble, transcript, false);
+                } else if (msg.type === 'error') {
+                    setBubbleContent(bubble, transcript || 'Explainer error: ' + (msg.message || 'unknown'), false);
+                    completed = true;
+                    cleanup();
+                    resolve(transcript);
+                } else if (msg.type === 'turn_complete') {
+                    if (transcript) setBubbleContent(bubble, transcript, true);
+                    completed = true;
+                    cleanup();
+                    resolve(transcript);
+                }
+            } else if (event.data instanceof ArrayBuffer) {
+                if (!ttsEnabled) return;
+                try { playPcmChunk(event.data); } catch (e) { console.warn('[Live] audio chunk failed', e); }
+            }
+        };
+        const onClose = () => { cleanup(); resolve(transcript); };
+        const cleanup = () => {
+            ws.removeEventListener('message', onMessage);
+            ws.removeEventListener('close', onClose);
+        };
+        ws.addEventListener('message', onMessage);
+        ws.addEventListener('close', onClose);
+        try {
+            ws.send(JSON.stringify(payload));
+        } catch (e) {
+            cleanup();
+            resolve(transcript);
+        }
     });
+    if (!completed && attempt < LIVE_TURN_RETRY_LIMIT) {
+        console.warn(`[Live] socket dropped mid-turn, retrying turn (attempt ${attempt + 1})`);
+        return attemptLiveTurn(payload, bubble, attempt + 1);
+    }
+    return result;
+}
+
+function runLiveTurn(payload, bubble) {
+    const job = liveTurnQueue.then(() => attemptLiveTurn(payload, bubble, 0));
     liveTurnQueue = job.catch(() => {});
     return job;
 }
+
+const TTS_ICON_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>';
+const TTS_ICON_ON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
 
 function setTtsEnabled(on) {
     ttsEnabled = Boolean(on);
@@ -485,7 +562,7 @@ function setTtsEnabled(on) {
     if (btn) {
         btn.classList.toggle('active', ttsEnabled);
         btn.setAttribute('aria-pressed', ttsEnabled ? 'true' : 'false');
-        btn.textContent = ttsEnabled ? 'Narrating' : 'Narrate';
+        btn.innerHTML = ttsEnabled ? TTS_ICON_ON : TTS_ICON_OFF;
         btn.setAttribute('aria-label', ttsEnabled ? 'Disable narration audio' : 'Enable narration audio');
     }
     if (ttsEnabled) {
@@ -500,12 +577,41 @@ function setExplainerStatus(text) {
     if (status) status.textContent = text;
 }
 
-function setExplainerBusy(isBusy) {
+function applyExplainerEnabled() {
+    const enabled = liveConnected && !explainerBusy;
     const send = document.getElementById('explainer-send');
     const input = document.getElementById('explainer-input');
-    if (send) send.disabled = isBusy;
-    if (input) input.disabled = isBusy;
-    setExplainerStatus(isBusy ? 'Thinking...' : 'Gemini 3.1 Flash Live');
+    if (send) send.disabled = !enabled;
+    if (input) {
+        input.disabled = !enabled;
+        input.placeholder = liveConnected ? 'Ask the explainer...' : 'Explainer disconnected — reconnecting…';
+    }
+    document.querySelectorAll('.explainer-suggestions button').forEach((b) => { b.disabled = !enabled; });
+}
+
+function setLiveConnected(connected) {
+    if (liveConnected === connected) return;
+    liveConnected = connected;
+    applyExplainerEnabled();
+    if (!explainerBusy) {
+        setExplainerStatus(connected ? 'Gemini 3.1 Flash Live' : 'Disconnected');
+    }
+    if (!connected) {
+        // Actively try to recover instead of waiting for the next user turn.
+        getLiveSocketWithRetry().catch((e) => {
+            console.warn('[Live] auto reconnect failed', e);
+        });
+    }
+}
+
+function setExplainerBusy(isBusy) {
+    explainerBusy = isBusy;
+    applyExplainerEnabled();
+    if (isBusy) {
+        setExplainerStatus('Thinking...');
+    } else {
+        setExplainerStatus(liveConnected ? 'Gemini 3.1 Flash Live' : 'Disconnected');
+    }
 }
 
 async function sendExplainerMessage(messageOverride = '') {
@@ -678,8 +784,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const ttsToggle = document.getElementById('tts-toggle');
     if (ttsToggle) {
+        ttsToggle.innerHTML = TTS_ICON_OFF;
         ttsToggle.addEventListener('click', () => setTtsEnabled(!ttsEnabled));
     }
 
     updateExplainerCujButtons();
+    applyExplainerEnabled();
+    getLiveSocketWithRetry().catch((e) => {
+        console.warn('[Live] initial connect failed', e);
+    });
 });

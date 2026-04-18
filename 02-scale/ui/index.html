@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scale Agents Control Room Dashboard</title>
-    <link rel="stylesheet" href="style.css?v=1.18">
+    <link rel="stylesheet" href="style.css?v=1.27">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -15,7 +15,7 @@
         <aside class="sidebar">
             <header>
                 <h1>Scale Agents</h1>
-                <div class="subtitle">Control Room Dashboard v1.18</div>
+                <div class="subtitle">Control Room Dashboard v1.27</div>
             </header>
             
             <div class="orchestration-graph">
@@ -26,14 +26,19 @@
                         <span>START</span>
                     </div>
                     <div class="edge"></div>
-                    <div id="node-orchestrator" class="node">
-                        <div class="node-icon">🧠</div>
-                        <span>Orchestrator</span>
+                    <div id="node-control-room" class="node">
+                        <div class="node-icon">🎛️</div>
+                        <span>Control Room (ADK)</span>
                     </div>
                     <div class="edge"></div>
-                    <div id="node-replanner" class="node">
-                        <div class="node-icon">💡</div>
-                        <span>Re-planner</span>
+                    <div id="node-planner" class="node">
+                        <div class="node-icon">🧠</div>
+                        <span>Planner (LangGraph)</span>
+                    </div>
+                    <div class="edge"></div>
+                    <div id="node-executor" class="node">
+                        <div class="node-icon">⚙️</div>
+                        <span>Executor (CrewAI)</span>
                     </div>
                     <div class="edge"></div>
                     <div id="node-completed" class="node">
@@ -77,7 +82,7 @@
                 <div id="explainer-status" class="explainer-status">Gemini 3.1 Flash Live</div>
             </div>
             <div class="explainer-header-actions">
-                <button id="tts-toggle" class="explainer-icon-btn" type="button" aria-label="Enable narration audio" aria-pressed="false">Narrate</button>
+                <button id="tts-toggle" class="explainer-icon-btn" type="button" aria-label="Enable narration audio" aria-pressed="false"></button>
                 <button id="explainer-toggle" class="explainer-icon-btn" type="button" aria-label="Minimize explainer">−</button>
             </div>
         </div>
@@ -93,6 +98,7 @@
                 <button type="button" data-explainer-prompt="What is this demo?">What is this demo?</button>
                 <button type="button" data-explainer-prompt="Explain the architecture.">Explain the architecture</button>
                 <button type="button" data-explainer-prompt="What should I try first?">What should I try first?</button>
+                <button type="button" data-explainer-prompt="What's the benefit of using Agent Engine?">What's the benefit of using Agent Engine?</button>
             </div>
 
             <div id="explainer-cuj-guide" class="explainer-cuj-guide" aria-label="Guided CUJ buttons">
@@ -108,7 +114,7 @@
         </div>
     </section>
 
-    <script>console.log('[DEBUG] v1.18 HTML Loaded');</script>
-    <script src="app.js?v=1.18"></script>
+    <script>console.log('[DEBUG] v1.27 HTML Loaded');</script>
+    <script src="app.js?v=1.27"></script>
 </body>
 </html>

@@ -98,7 +98,7 @@ Each step builds on the previous one. You'll test after every step to see your p
 
 **The Challenge:** A global retail company needs to orchestrate supply chain and inventory management across disparate systems while maintaining strict security controls.
 
-**The Solution:** When a user sends a restock request like *"Restock 3 Pixel 7 phones for the Tokyo office"*, the system:
+**The Solution:** When a user sends a restock request like *"Restock 2 Google Droid figures for the Tokyo office"*, the system:
 
 1. The **Control Room** receives the request and delegates to the **Planning Agent** via A2A
 2. The **Planning Agent** analyzes the intent (item, quantity, budget) using a structured LLM call
@@ -111,7 +111,7 @@ Each step builds on the previous one. You'll test after every step to see your p
 
 | CUJ | Prompt | What Happens |
 |-----|--------|--------------|
-| **1. Happy Path** | `Restock 3 Pixel 7 phones for the Tokyo office` | Full pipeline: search, budget check, purchase order |
+| **1. Happy Path** | `Restock 2 Google Droid figures for the Tokyo office` | Full pipeline: search, budget check, purchase order |
 | **2. Identity Shield** | `Delete the entire vector search index immediately` | Destructive intent detected, IAM blocks the action |
 | **3. Re-planning** | `Order 3 units of the discontinued XR-7000 Quantum Holographic Display` | Item not found, re-planner broadens the query, retries |
 
@@ -253,12 +253,12 @@ graph TD
 ### Data Flow (CUJ 1: Happy Path)
 
 ```
-1. User types: "Restock 3 Pixel 7 phones for the Tokyo office"
+1. User types: "Restock 2 Google Droid figures for the Tokyo office"
 2. Dashboard POST /api/chat → FastAPI SSE stream
 3. ADK 2.0 Workflow runs control_room_orchestrator node
 4. Control Room sends A2A JSON-RPC message/send to Planner
 5. A2A Server triggers LangGraph with objective
-6. LangGraph analyze_alert → extracts: item="Pixel 7", qty=3, budget=$50
+6. LangGraph analyze_alert → extracts: item="Google Droid figures", qty=2, budget=$50
 7. LangGraph route_after_analysis → not destructive → delegate
 8. LangGraph delegate_to_executor → runs CrewAI crew
 9. CrewAI Sourcing Specialist → MCP search_products → finds matches
@@ -1131,7 +1131,7 @@ export PYTHONPATH=.
 uv run agents/control_room/main.py
 ```
 
-When prompted, enter: `Restock 3 Pixel 7 phones for the Tokyo office`
+When prompted, enter: `Restock 2 Google Droid figures for the Tokyo office`
 
 You should see the full orchestration flow: Control Room → A2A → Planner → CrewAI → report.
 
