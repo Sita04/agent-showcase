@@ -167,9 +167,8 @@ async def basic_auth_middleware(request: Request, call_next):
         decoded_creds = base64.b64decode(encoded_creds).decode("utf-8")
         username, password = decoded_creds.split(":", 1)
         
-        # Default to demo/demo if not set
-        expected_user = os.environ.get("AUTH_USERNAME", "demo")
-        expected_pass = os.environ.get("AUTH_PASSWORD", "demo")
+        expected_user = os.environ.get("AUTH_USERNAME")
+        expected_pass = os.environ.get("AUTH_PASSWORD")
         
         if username != expected_user or password != expected_pass:
             return Response("Unauthorized", status_code=401, headers={"WWW-Authenticate": "Basic"})
