@@ -375,7 +375,7 @@ PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.a
 
 > **If you redeploy the Dashboard later**, re-run step 3's `gcloud run services update scale-planner-a2a --update-env-vars CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status"` so the planner bridge keeps pushing status to the right host. Without it, the dashboard renders only Control Room + A2A bubbles — Planner / Executor bubbles silently drop.
 
-> **Optional Phase 2: Control Room on Agent Engine.** The Dashboard can offload the ADK Workflow to a remote Agent Engine instance (so multiple replicas share one orchestrator). Deploy with `uv run scripts/deploy_to_agent_engine.py --control-room-only` (passing `PLANNER_AGENT_URL` and `CONTROL_ROOM_STATUS_URL`), then `gcloud run services update scale-control-room --update-env-vars CONTROL_ROOM_AGENT_ENGINE_ID=projects/.../reasoningEngines/...`. Source deployment of `Workflow` agents was previously blocked; verify against the latest ADK release before relying on it.
+> **Optional Phase 2: Control Room on Agent Engine.** The Dashboard can offload the ADK Workflow to a remote Agent Engine instance (so multiple replicas share one orchestrator). ADK 2.0.0a3 supports `Workflow` source deployment to Agent Engine. Deploy with `uv run scripts/deploy_to_agent_engine.py --control-room-only` (passing `PLANNER_AGENT_URL` and `CONTROL_ROOM_STATUS_URL`), then `gcloud run services update scale-control-room --update-env-vars CONTROL_ROOM_AGENT_ENGINE_ID=projects/.../reasoningEngines/...`. The Dashboard already has both code paths gated by that env var (in-process when unset/`local`, remote AE when set to a `reasoningEngines/...` resource name) -- no Dashboard code change needed.
 
 Deployment assets: `Dockerfile.planner-a2a`, `Dockerfile.control-room`, `cloudbuild-*.yaml`, `scripts/deploy_*_cloud_run.sh`, `scripts/deploy_to_agent_engine.py`.
 
@@ -587,7 +587,7 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 2. **Deployed the Planning Agent** (LangGraph) to Agent Engine via native SDK wrapper deployment
    * Resource: `projects/761793285222/locations/us-central1/reasoningEngines/5193187481788350464`
    * Created directly with `serviceAccount=planning-agent-sa@...`
-3. **Control Room Agent** -- Cloud Run path is live. ADK `Workflow` is still blocked for Agent Engine source deployment, and BYOC is blocked by the container policy error.
+3. **Control Room Agent** -- Cloud Run path is live. ADK 2.0.0a3 supports `Workflow` source deployment to Agent Engine via `agent_engines.create()` (see `scripts/deploy_to_agent_engine.py --control-room-only`). BYOC is still blocked by the container policy error.
 
 #### Phase 2: Enforce IAM Boundaries (DONE)
 
@@ -607,7 +607,7 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 #### CUJ 2 Open Items
 
 * [ ] Exact `20`-mug live demo prompt -- currently fails mock budget policy as `Over Budget`
-* [ ] Deploy Control Room to Agent Engine (Phase 2 in the deploy sequence) -- ADK 2.0.0a3 `Workflow` source deployment needs re-validation against the latest release; BYOC still blocked by container policy error
+* [ ] Deploy Control Room to Agent Engine (Phase 2 in the deploy sequence) -- ADK 2.0.0a3 supports `Workflow` source deployment via `scripts/deploy_to_agent_engine.py --control-room-only`; BYOC still blocked by container policy error
 * [ ] Re-deploy planner Agent Engine with `CONTROL_ROOM_STATUS_URL` set so per-step Executor (CrewAI) bubbles surface in the dashboard
 * [ ] IAM deny policy (optional extra guardrail; current user lacks `iam.denypolicies.create`)
 
