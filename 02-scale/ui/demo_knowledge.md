@@ -94,6 +94,68 @@ Expected flow:
 What users should notice: the system can recover from some execution failures
 instead of simply stopping at the first error.
 
+## What Happens Inside Each Agent
+
+This describes the runtime detail users actually see in the dashboard
+bubbles, so explanations of "what just happened" are concrete.
+
+- Control Room (ADK): receives the prompt, emits handoff status, calls the
+  Planner via A2A, then evaluates the returned report and decides whether
+  to surface it, retry, or stop.
+- Planner (LangGraph): a state graph with nodes for understanding the
+  request, routing to execution or to a security path, invoking the
+  Executor crew, and generating the final report. The "Re-Planner" is the
+  recovery branch of this same graph.
+- Executor (CrewAI): assembles a small team of role-specific agents
+  (typically a Sourcing Specialist) that search the product catalog,
+  check budget, and place a purchase order. Each role's reasoning is
+  streamed to the dashboard.
+- Product catalog: a Vertex AI Vector Search index over a public Mercari
+  product dataset, queried through an MCP tool adapter.
+- Order management: a mock OMS exposed through an MCP tool adapter that
+  returns synthetic purchase order IDs (e.g. PO-m28414276566-2).
+- Status streaming: the Planner and Executor post per-step updates via
+  the dashboard's /api/push_status endpoint so the right panel can show
+  Planner and Executor bubbles in addition to Control Room and A2A.
+
+## Why This Stack
+
+Each layer is chosen for what it does well:
+
+- ADK gives the Control Room a structured workflow runtime with built-in
+  session management and streaming events.
+- LangGraph fits the Planner because planning, security, and re-planning
+  are naturally a small state machine with explicit branches.
+- CrewAI fits the Executor because procurement is naturally role-based:
+  source, validate, place order — each role with focused tools.
+- A2A standardizes the Control Room → Planner call so either side can be
+  swapped or moved (local dev, Cloud Run, Agent Engine) without changing
+  the contract.
+- MCP standardizes how the Executor talks to product search and the order
+  system, so tools can be added or replaced without touching agent code.
+- Agent Engine hosts the deployed agents with a managed runtime (sessions,
+  scaling, observability) so the same code runs locally and in production.
+
+## Technology One-Liners
+
+Use these inline summaries when answering compare/contrast or "what is X"
+questions. Use Google Search for deeper or more current detail.
+
+- ADK (Agent Development Kit): Google's open-source framework for building
+  multi-agent workflows in Python with sessions, events, and streaming.
+- LangGraph: open-source library from the LangChain team for building
+  agent workflows as explicit state graphs with checkpointing and replay.
+- CrewAI: open-source framework for orchestrating role-based agent crews
+  with tasks, tools, and a process model (sequential, hierarchical).
+- A2A (Agent2Agent) Protocol: an open standard for cross-framework agent
+  communication using JSON-RPC over HTTP with a published Agent Card.
+- MCP (Model Context Protocol): an open standard from Anthropic for
+  exposing tools and resources to LLMs through a uniform server interface.
+- Vertex AI Agent Engine: Google Cloud's managed runtime for deployed
+  agents, with built-in session storage, scaling, and tracing.
+- Gemini Live API: bidirectional low-latency audio + text streaming API
+  powering real-time voice agents and narration like this Explainer.
+
 ## How To Experience The Demo
 
 Start with CUJ 1 to see the normal procurement path. Then run CUJ 2 to see how

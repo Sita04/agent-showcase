@@ -512,6 +512,38 @@ def build_a2a_host(public_url: str):
 port = int(os.environ.get("PORT", 8080))
 public_url = os.environ.get("AGENT_URL", f"http://localhost:{port}/")
 
+
+def _assert_planner_url_not_self(listen_port: int) -> None:
+    """Refuse to start if PLANNER_AGENT_URL points back at this process.
+
+    The Control Room invokes the Planner via A2A. The Planner A2A app is
+    mounted at "/" on this same process, so a self-pointing URL produces an
+    infinite Control Room → A2A → Control Room loop that floods the SSE
+    stream and the dashboard.
+    """
+    from urllib.parse import urlparse
+
+    raw = os.environ.get("PLANNER_AGENT_URL", "http://127.0.0.1:8080")
+    try:
+        parsed = urlparse(raw)
+    except Exception:
+        return
+    host = (parsed.hostname or "").lower()
+    target_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    local_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+    if host in local_hosts and target_port == listen_port:
+        raise RuntimeError(
+            f"PLANNER_AGENT_URL={raw!r} points back at this server "
+            f"(port {listen_port}). The Control Room would call its own A2A "
+            "endpoint and loop forever. Start the Planner A2A on a separate "
+            "port (e.g. PORT=8081 uv run -m agents.planner.a2a_server) and "
+            "set PLANNER_AGENT_URL=http://127.0.0.1:8081 before launching "
+            "the dashboard."
+        )
+
+
+_assert_planner_url_not_self(port)
+
 # Build the A2A app
 a2a_app = build_a2a_host(public_url)
 

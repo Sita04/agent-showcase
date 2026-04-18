@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.27 - Live WS reconnect with backoff + mid-turn retry
-console.log('[DEBUG] Script v1.27 starting load...');
+// Scale Agents Dashboard Logic v1.28 - Live WS reconnect with backoff + mid-turn retry
+console.log('[DEBUG] Script v1.28 starting load...');
 
 // Global state
 let currentSessionId = 'demo_session_1';
@@ -735,6 +735,53 @@ function updateExplainerCujButtons() {
         const sendBtn = document.getElementById('send-btn');
         btn.disabled = Boolean(sendBtn && sendBtn.disabled && !(activeCuj && activeCuj.id === cujId));
     });
+    updateExplainerSuggestions();
+}
+
+const SUGGESTION_SETS = {
+    onboarding: [
+        'What is this demo?',
+        'Explain the architecture',
+        'What should I try first?',
+        'Why use multi-agent for this?'
+    ],
+    midJourney: [
+        'What did the agents just do?',
+        'How does Agent Identity protect this demo?',
+        'What is the A2A protocol?',
+        'What should I try next?'
+    ],
+    exploration: [
+        "What's the benefit of using Agent Engine?",
+        'Compare LangGraph and CrewAI',
+        'How does MCP fit into the architecture?',
+        'What is the Gemini Live API?'
+    ]
+};
+
+function pickSuggestionSet() {
+    if (completedCujIds.has('3')) return SUGGESTION_SETS.exploration;
+    if (completedCujIds.size > 0) return SUGGESTION_SETS.midJourney;
+    return SUGGESTION_SETS.onboarding;
+}
+
+let lastRenderedSuggestionSet = null;
+
+function updateExplainerSuggestions() {
+    const container = document.getElementById('explainer-suggestions');
+    if (!container) return;
+    const set = pickSuggestionSet();
+    if (set === lastRenderedSuggestionSet) return;
+    lastRenderedSuggestionSet = set;
+    container.innerHTML = '';
+    set.forEach((prompt) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('data-explainer-prompt', prompt);
+        btn.textContent = prompt;
+        container.appendChild(btn);
+    });
+    applyExplainerEnabled();
 }
 
 // Expose globally
@@ -749,11 +796,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    document.querySelectorAll('[data-explainer-prompt]').forEach((btn) => {
-        btn.addEventListener('click', () => {
+    const suggestionsContainer = document.getElementById('explainer-suggestions');
+    if (suggestionsContainer) {
+        suggestionsContainer.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-explainer-prompt]');
+            if (!btn || btn.disabled) return;
             sendExplainerMessage(btn.getAttribute('data-explainer-prompt') || '');
         });
-    });
+    }
 
     document.querySelectorAll('[data-run-cuj]').forEach((btn) => {
         btn.addEventListener('click', () => runCuj(btn.getAttribute('data-run-cuj')));

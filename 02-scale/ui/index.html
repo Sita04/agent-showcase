@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scale Agents Control Room Dashboard</title>
-    <link rel="stylesheet" href="style.css?v=1.27">
+    <link rel="stylesheet" href="style.css?v=1.28">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -15,7 +15,7 @@
         <aside class="sidebar">
             <header>
                 <h1>Scale Agents</h1>
-                <div class="subtitle">Control Room Dashboard v1.27</div>
+                <div class="subtitle">Control Room Dashboard v1.28</div>
             </header>
             
             <div class="orchestration-graph">
@@ -94,11 +94,8 @@
                 </div>
             </div>
 
-            <div class="explainer-suggestions" aria-label="Suggested explainer requests">
-                <button type="button" data-explainer-prompt="What is this demo?">What is this demo?</button>
-                <button type="button" data-explainer-prompt="Explain the architecture.">Explain the architecture</button>
-                <button type="button" data-explainer-prompt="What should I try first?">What should I try first?</button>
-                <button type="button" data-explainer-prompt="What's the benefit of using Agent Engine?">What's the benefit of using Agent Engine?</button>
+            <div id="explainer-suggestions" class="explainer-suggestions" aria-label="Suggested explainer requests">
+                <!-- Buttons rendered dynamically by updateExplainerSuggestions() -->
             </div>
 
             <div id="explainer-cuj-guide" class="explainer-cuj-guide" aria-label="Guided CUJ buttons">
@@ -114,7 +111,7 @@
         </div>
     </section>
 
-    <script>console.log('[DEBUG] v1.27 HTML Loaded');</script>
-    <script src="app.js?v=1.27"></script>
+    <script>console.log('[DEBUG] v1.28 HTML Loaded');</script>
+    <script src="app.js?v=1.28"></script>
 </body>
 </html>
