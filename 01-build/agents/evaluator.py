@@ -26,7 +26,7 @@ async def shopping_evaluator(ctx: Context, node_input: dict):
     """
     Evaluates found items against the plan's budget.
     """
-    print("\n🕵️‍♂️ [Evaluator] Assessing found items against plan...")
+    # print("\n🕵️‍♂️ [Evaluator] Assessing found items against plan...")
     items = node_input.get("items", [])
     plan = node_input.get("plan")
     

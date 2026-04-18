@@ -500,7 +500,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 if (data.reply) {
-                    appendMessage(data.reply, 'agent');
+                    const reply = data.reply;
+                    if (!reply.includes('sys_speaker') && !reply.includes('You are an agent')) {
+                        appendMessage(reply, 'agent');
+                    } else {
+                        appendMessage("👉 Processed your selection. Ready to proceed?", 'agent');
+                    }
                 }
             }
 

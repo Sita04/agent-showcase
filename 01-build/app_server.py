@@ -33,7 +33,7 @@ def load_env():
                         if "=" in line:
                             key, val = line.split("=", 1)
                             os.environ[key.strip()] = val.strip().strip('"').strip("'")
-            print(f"Loaded environment from {env_path}")
+            # print(f"Loaded environment from {env_path}")
             break # Prioritize the first one found
 
 load_env()
@@ -146,7 +146,42 @@ def render_cart_ui(cart, payment_link=None):
         }
     }
 
+import base64
+from fastapi import Response
+from starlette.middleware.base import BaseHTTPMiddleware
+
+async def basic_auth_middleware(request: Request, call_next):
+    # Skip health check
+    if request.url.path == "/api/health":
+        return await call_next(request)
+        
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return Response("Unauthorized", status_code=401, headers={"WWW-Authenticate": "Basic"})
+    
+    try:
+        auth_type, encoded_creds = auth_header.split(" ", 1)
+        if auth_type.lower() != "basic":
+            return Response("Unauthorized", status_code=401, headers={"WWW-Authenticate": "Basic"})
+        
+        decoded_creds = base64.b64decode(encoded_creds).decode("utf-8")
+        username, password = decoded_creds.split(":", 1)
+        
+        # Default to demo/demo if not set
+        expected_user = os.environ.get("AUTH_USERNAME", "demo")
+        expected_pass = os.environ.get("AUTH_PASSWORD", "demo")
+        
+        if username != expected_user or password != expected_pass:
+            return Response("Unauthorized", status_code=401, headers={"WWW-Authenticate": "Basic"})
+            
+    except Exception:
+        return Response("Unauthorized", status_code=401, headers={"WWW-Authenticate": "Basic"})
+        
+    response = await call_next(request)
+    return response
+
 app = FastAPI(title="Shopping Squad UI")
+app.add_middleware(BaseHTTPMiddleware, dispatch=basic_auth_middleware)
 
 # Persistent services for run isolation
 _session_service = InMemorySessionService()
@@ -154,7 +189,7 @@ _session_service = InMemorySessionService()
 USE_REMOTE_AGENT = os.environ.get("USE_REMOTE_AGENT", "false").lower() == "true"
 
 if USE_REMOTE_AGENT:
-    print("Using REMOTE Agent Engine...")
+    # print("Using REMOTE Agent Engine...")
     import vertexai
     from vertexai import agent_engines
     
@@ -169,7 +204,7 @@ if USE_REMOTE_AGENT:
     _remote_sessions = {}
     _runner = None
 else:
-    print("Using LOCAL Agent...")
+    # print("Using LOCAL Agent...")
     _runner = Runner(
         agent=root_agent,
         app_name="shopping_squad",
@@ -187,7 +222,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
     origin = request.headers.get("origin") or f"{scheme}://{request.url.netloc}"
     os.environ["APP_URL"] = origin
-    print(f"DEBUG: /api/chat received prompt='{prompt}', persona='{persona}', session_id='{session_id}'")
+    # print(f"DEBUG: /api/chat received prompt='{prompt}', persona='{persona}', session_id='{session_id}'")
     if not session_id:
         session_id = "demo_session_1"
     user_id = "demo_user_1"
@@ -486,9 +521,10 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
     awaiting_approval = False
     cart = []
     found_options = []
+    payment_link = ""
     
     if USE_REMOTE_AGENT:
-        print(f"Querying remote agent with prompt: {full_prompt}")
+        # print(f"Querying remote agent with prompt: {full_prompt}")
         try:
             session_not_found = False
             async for event in _remote_agent.async_stream_query(
@@ -496,7 +532,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                 session_id=current_remote_session_id,
                 message=full_prompt
             ):
-                print(f"[DEBUG REMOTE] Event: {event}")
+                # print(f"[DEBUG REMOTE] Event: {event}")
                 
                 # Filter out planner events to avoid raw JSON in UI
                 node_path = event.get("node_info", {}).get("path", "")
@@ -519,12 +555,16 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                     awaiting_approval = state_delta["awaiting_approval"]
                 if "found_options" in state_delta:
                     found_options = state_delta["found_options"]
+                if "agent_cart" in state_delta:
+                    cart = state_delta["agent_cart"]
+                if "payment_link" in state_delta:
+                    payment_link = state_delta["payment_link"]
                         
             if session_not_found:
-                print(f"Session {session_id} not found on remote. Creating new session...")
+                # print(f"Session {session_id} not found on remote. Creating new session...")
                 remote_session = await _remote_agent.async_create_session(user_id=user_id)
                 new_session_id = remote_session["id"]
-                print(f"Created new remote session: {new_session_id}")
+                # print(f"Created new remote session: {new_session_id}")
                 _remote_sessions[session_id] = new_session_id
                 
                 # Retry with new session ID
@@ -534,7 +574,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                     session_id=new_session_id,
                     message=full_prompt
                 ):
-                    print(f"[DEBUG REMOTE RETRY] Event: {event}")
+                    # print(f"[DEBUG REMOTE RETRY] Event: {event}")
                     
                     # Filter out planner events to avoid raw JSON in UI
                     node_path = event.get("node_info", {}).get("path", "")
@@ -553,11 +593,13 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                         awaiting_approval = state_delta["awaiting_approval"]
                     if "found_options" in state_delta:
                         found_options = state_delta["found_options"]
+                    if "agent_cart" in state_delta:
+                        cart = state_delta["agent_cart"]
                             
             if "<!--[JSON_PAYLOAD]" in reply_text:
                 success_triggered = True
         except Exception as e:
-            print(f"Error querying remote agent: {e}")
+            # print(f"Error querying remote agent: {e}")
             reply_text = f"Error querying remote agent: {e}"
     else:
         # Run the workflow locally and collect outputs
@@ -567,7 +609,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
             new_message=new_message
         ):
             # Clean debug logs
-            print(f"\n[DEBUG] Event: {type(event)} | Node: {getattr(event, 'node_name', 'N/A')}")
+            # print(f"\n[DEBUG] Event: {type(event)} | Node: {getattr(event, 'node_name', 'N/A')}")
             
             # Check event.output which holds the text for speaker agents
             output_data = getattr(event, 'output', None)
@@ -599,16 +641,18 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
                     json_data = json.loads(match.group(1).strip())
                     found_options.append(json_data)
                 except Exception as e:
-                    print(f"Error parsing JSON payload from remote agent: {e}")
+                    # print(f"Error parsing JSON payload from remote agent: {e}")
+                    pass
         
         match_cart = re.search(r'<!--\[CART_PAYLOAD\](.*?)\[/CART_PAYLOAD\]-->', reply_text, re.DOTALL)
-        if match_cart:
+        if not cart and match_cart:
             try:
                 import json
                 cart_data = json.loads(match_cart.group(1).strip())
                 cart = cart_data.get("items", [])
             except Exception as e:
-                print(f"Error parsing CART payload from remote agent: {e}")
+                # print(f"Error parsing CART payload from remote agent: {e}")
+                pass
     else:
         session = await _runner.session_service.get_session(
             app_name="shopping_squad",
@@ -618,12 +662,12 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
         
         if success_triggered:
             found_options = session.state.get("found_options", [])
-            if found_options:
-                print("\n--- 🔍 SEARCH RESULTS IDS 🔍 ---")
-                for group in found_options:
-                    for item in group.get("options", []):
-                        print(f"ID: {item.get('id')} | Name: {item.get('name')}")
-                print("---------------------------------\n")
+            # if found_options:
+            #     # print("\n--- 🔍 SEARCH RESULTS IDS 🔍 ---")
+            #     # for group in found_options:
+            #     #     for item in group.get("options", []):
+            #     #         print(f"ID: {item.get('id')} | Name: {item.get('name')}")
+            #     # print("---------------------------------\n")
                 
         proposed_plan_ui = session.state.get("proposed_plan_ui")
         awaiting_approval = session.state.get("awaiting_approval", False)
@@ -635,11 +679,8 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
         response_data["a2ui_data"] = render_search_ui(found_options, persona)
     elif proposed_plan_ui and awaiting_approval:
         response_data["a2ui_data"] = proposed_plan_ui
-    elif "stripe.com" in reply_text:
-        match = re.search(r'(https://[a-zA-Z0-9.-]*stripe\.com/[^\s]+)', reply_text)
-        payment_link = match.group(1) if match else ""
-        
-        if cart and payment_link:
+    elif payment_link:
+        if cart:
             response_data["a2ui_data"] = render_cart_ui(cart, payment_link)
             reply_text = "Your order is ready! Here is a summary and payment link:"
 
@@ -648,7 +689,7 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
         reply_text = reply_text.replace('\n\n', '\n')
         
         # Remove system speaker identification leak
-        reply_text = re.sub(r'You are an agent\. Your internal name is "[^"]*"\.', '', reply_text)
+        reply_text = re.sub(r'You are an agent\. Your internal name is "[^"]*"\.?\s*', '', reply_text)
         
         # Cart summary rendering on every add has been removed to avoid clutter.
         # It will now only be shown during final checkout.
@@ -714,7 +755,7 @@ async def create_checkout_session(items: List[CartItem], request: Request):
         scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
         origin = request.headers.get("origin") or f"{scheme}://{request.url.netloc}"
         
-        print(f"DEBUG: Creating Stripe session with line_items: {line_items}")
+        # print(f"DEBUG: Creating Stripe session with line_items: {line_items}")
         
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -725,12 +766,12 @@ async def create_checkout_session(items: List[CartItem], request: Request):
         )
         return {"url": session.url}
     except Exception as e:
-        print(f"Error creating stripe session: {e}")
+        # print(f"Error creating stripe session: {e}")
         return {"error": str(e)}, 400
 
 @app.get("/api/clear-cart")
 async def clear_cart():
-    print("DEBUG: Cart cleared on server (noop).")
+    # print("DEBUG: Cart cleared on server (noop).")
     return {"status": "success", "message": "Cart cleared"}
 
 # Mount images directory
@@ -742,5 +783,5 @@ app.mount("/", StaticFiles(directory="ui", html=True), name="ui")
 if __name__ == "__main__":
     # Use port 8080 to avoid clashing with 'adk web' if it's on 8000
     port = int(os.environ.get("PORT", 8080))
-    print(f"Starting server on port {port}...")
+    # print(f"Starting server on port {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port)

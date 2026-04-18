@@ -116,10 +116,26 @@ async def shopping_workflow(ctx: Context, node_input):
         def add_to_agent_cart(sku: str, name: str, price: float, img_url: str = ""):
             """Add an item to the agent's cart state. Call this when the user selects an item to purchase."""
             cart = list(ctx.state.get("agent_cart", []))
+            
+            plan = ctx.state.get("shopping_plan")
+            total_budget = 0.0
+            if plan:
+                if hasattr(plan, "total_budget"):
+                    total_budget = float(plan.total_budget)
+                elif isinstance(plan, dict):
+                    total_budget = float(plan.get("total_budget", 0.0))
+            
+            current_total = sum(item['price'] for item in cart)
+            new_total = current_total + price
+            
+            warning = ""
+            if total_budget > 0 and new_total > total_budget:
+                warning = f" WARNING: Adding this item pushes your cart total to ${new_total:.2f}, which exceeds your budget of ${total_budget:.2f}."
+            
             if not any(item['sku'] == sku for item in cart):
                 cart.append({"sku": sku, "name": name, "price": price, "img_url": img_url})
                 ctx.state["agent_cart"] = cart
-                return f"Added {name} to your order."
+                return f"Added {name} to your order.{warning}"
             return f"{name} is already in your order."
             
         def remove_from_agent_cart(sku: str):
@@ -138,7 +154,7 @@ async def shopping_workflow(ctx: Context, node_input):
             if not cart:
                 return "Cart is empty!"
                 
-            print(f"DEBUG: Creating Stripe session with cart: {cart}")
+            # print(f"DEBUG: Creating Stripe session with cart: {cart}")
                 
             line_items = []
             for item in cart:
@@ -163,7 +179,8 @@ async def shopping_workflow(ctx: Context, node_input):
                     cancel_url=f"{origin}/?canceled=true",
                 )
                 ctx.state["awaiting_selection"] = False # Finalize the session
-                return f"Here is your payment link: [Complete Purchase]({session.url})"
+                ctx.state["payment_link"] = session.url
+                return f"Here is your payment link: {session.url}"
             except Exception as e:
                 return f"Error creating payment link: {str(e)}"
 
@@ -181,7 +198,7 @@ async def shopping_workflow(ctx: Context, node_input):
             Match the user's request to the specific items from the provided options list. The user message will typically include the item name and its SKU (e.g., SKU: ...). Use the SKU to reliably identify the item in the options list.
             
             INSTRUCTIONS:
-            1. If the user wants to ADD an item, call `add_to_agent_cart` (be sure to pass the `img_url` from the options list if available!).
+            1. If the user wants to ADD an item, call `add_to_agent_cart` (be sure to pass the `img_url` from the options list if available!). If `add_to_agent_cart` returns a message containing 'WARNING', you MUST include that warning in your response to the user!
             2. If the user wants to REMOVE an item, call `remove_from_agent_cart`.
             3. If the user wants to CHECKOUT (or says 'That is it' or 'Checkout'), you MUST call `create_checkout_link` to generate a real Stripe payment link for the items in the cart. You MUST include the payment link in your response!
             4. If they ask what's in their cart, list the items in the current cart.
@@ -190,7 +207,7 @@ async def shopping_workflow(ctx: Context, node_input):
             Create an extremely friendly response in Markdown!
             - If adding an item, confirm it was added.
             - If removing an item, confirm it was removed.
-            - If checking out, you MUST include the payment link returned by `create_checkout_link` in your response!
+            - If checking out, you MUST include the payment link returned by `create_checkout_link` in your response! Do NOT wrap it in markdown link syntax (like [Text](url)), just output the raw URL.
             - If checking out, you MUST ALSO append your structured cart data secretly inside an HTML comment box at the very end of your message. Format EXACTLY like this:
             <!--[CART_PAYLOAD]
             {{
@@ -242,7 +259,10 @@ async def shopping_workflow(ctx: Context, node_input):
             Please update the plan based on the feedback. Modify or replace components to address the feedback while keeping the rest of the plan aligned with the user's goal.
             """
             plan = await ctx.run_node(dynamic_planner, prompt)
+            if plan is None:
+                plan = ctx.state.get(f"planner_user_ref__{run_id}")
             plan = _parse_plan_from_state(ctx, plan)
+            ctx.state["shopping_plan"] = plan
             ctx.state["awaiting_approval"] = True
             
             plan_dict = plan.model_dump() if hasattr(plan, 'model_dump') else plan
@@ -256,7 +276,7 @@ async def shopping_workflow(ctx: Context, node_input):
     else:
         # First time running! Generate the initial plan.
         input_text = _extract_text(node_input)
-        print(f"DEBUG: input_text for planner check = '{input_text}'")
+        # print(f"DEBUG: input_text for planner check = '{input_text}'")
         if "similar to" in input_text.lower() or "find_similar_items" in input_text.lower():
             from .schemas import ShoppingComponent
             import re
@@ -278,14 +298,17 @@ async def shopping_workflow(ctx: Context, node_input):
                 reasoning="Search for similar items based on user request."
             )
             ctx.state["proposed_plan"] = plan
+            ctx.state["shopping_plan"] = plan
             ctx.state["awaiting_approval"] = False
         else:
             dynamic_planner = create_planner_agent(name=f"planner_initial_{run_id}")
             plan = await ctx.run_node(dynamic_planner, node_input)
+            if plan is None:
+                plan = ctx.state.get(f"planner_initial_{run_id}")
             plan = _parse_plan_from_state(ctx, plan)
             if plan is None:
                 return "Planner failed to initialize."
-            
+            ctx.state["shopping_plan"] = plan
             ctx.state["awaiting_approval"] = True
             plan_dict = plan.model_dump() if hasattr(plan, 'model_dump') else plan
             ctx.state["proposed_plan_ui"] = render_plan_ui(plan_dict)
@@ -301,8 +324,6 @@ async def shopping_workflow(ctx: Context, node_input):
         # Since we use a schema, we use dot notation: plan.components
         for i, component in enumerate(plan.components): 
             query_string = component.description_prompt
-            if plan.theme and ("Daily Bicycle Commute" in plan.theme or "Bicycle" in plan.theme):
-                query_string = "bicycle accessories for men"
             budget_val = component.budget_allocation
             
             # Instantiate a uniquely configured agent with baked-in prompt instructions
