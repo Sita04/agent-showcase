@@ -316,7 +316,7 @@ The full demo runs across **four** managed services:
 | **Planner A2A bridge** | Cloud Run | `planning-agent-sa` |
 | **Control Room Dashboard** (ADK 2.0 Workflow + UI) | Cloud Run | `control-room-sa` |
 
-The Planner A2A bridge wraps the Agent-Engine planner so the Control Room can talk to it via standard A2A JSON-RPC. The Dashboard runs the ADK Workflow in-process today and is the user-facing entry point.
+The Planner A2A bridge wraps the Agent-Engine planner so the Control Room can talk to it via standard A2A JSON-RPC. The Dashboard is the user-facing entry point and can either run the ADK Control Room Workflow in-process or invoke an Agent-Engine-hosted Control Room (via `CONTROL_ROOM_AGENT_ENGINE_ID`).
 
 Key Cloud Run knobs:
 * `--concurrency 10` -- required so `/api/push_status` callbacks and the SSE stream share the same instance
@@ -621,7 +621,7 @@ Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the cur
 | **External Systems** | ERP, CRM integrations on both sides | None | No ERP/CRM connectors |
 | **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Planning Agent and Execution Crew both run under their intended service accounts | Full stack is split across Cloud Run + Agent Engine |
 | **Session Management** | Enhanced session management | Deployed Control Room uses **Agent Engine's managed Session Service** (via `AdkApp` default + `VertexAiSessionService`); local dev fallback uses `InMemorySessionService` | Cross-framework session sharing (LangGraph ↔ ADK ↔ CrewAI) still pending — see Q2 "Framework-agnostic session support" below |
-| **Agent Engine** | Core Runtime hosting both layers | Planning Agent + Execution Crew on Agent Engine | Control Room Agent on Agent Engine, Dashboard on Cloud Run |
+| **Agent Engine** | Core Runtime hosting both layers | Planning Agent + Execution Crew + Control Room Agent on Agent Engine; Dashboard on Cloud Run | Closed -- Control Room ADK Workflow now runs on Agent Engine via 2.0a3 source deployment |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
 | **A2A end-to-end** | A2A between all agents | A2A only between Control Room and Planner | Wrap Execution Crew in its own A2A server |
 | **Multiple MCP connections** | MCP on both planning and execution sides | MCP only on execution side | Planning Agent has no MCP tools |

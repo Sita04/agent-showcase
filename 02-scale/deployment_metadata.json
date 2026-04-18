@@ -1,4 +1,6 @@
 {
+  "control_room_agent_engine_id": "projects/761793285222/locations/us-central1/reasoningEngines/801614895148695552",
+  "control_room_agent_sa": "execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com",
   "crew_agent_engine_id": "projects/761793285222/locations/us-central1/reasoningEngines/5557979051605360640",
   "crew_agent_sa": "execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com",
   "crewai_patched_wheel": "vendor/crewai-1.6.1-py3-none-any.whl",
