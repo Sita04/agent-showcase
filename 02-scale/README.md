@@ -363,11 +363,17 @@ PROJECT_NUMBER=$(gcloud projects describe "${GOOGLE_CLOUD_PROJECT}" --format='va
 DASHBOARD_URL="https://scale-control-room-${PROJECT_NUMBER}.us-central1.run.app"
 
 # First-time deploy: run sequentially so --planning-only can read the freshly
-# created crew_agent_engine_id from deployment_metadata.json. On re-deploys
-# (when both engine IDs already exist in the metadata file), the two commands
-# are safe to run in parallel — each deploy stages under its own
-# `gcs_dir_name` subdir in the staging bucket, so they don't overwrite each
-# other's pickled agent code.
+# created crew_agent_engine_id from deployment_metadata.json. New engines
+# created from this point on each get their own `gcs_dir_name` subdir in the
+# staging bucket, so future re-deploys can safely run in parallel.
+#
+# IMPORTANT: `gcs_dir_name` is bound at engine *create* time. Engines that
+# pre-date this fix keep their original shared staging path
+# (`agent_engine/agent_engine.pkl`) on every `update()`, so any `--crew-only`
+# deploy will overwrite the planner pickle (and vice versa) — silently turning
+# one engine into the other on its next cold-start. If `gcloud`/REST shows
+# both engines pointing to the same `pickleObjectGcsUri`, recreate them with
+# `--force` (see the Troubleshooting table below).
 CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" \
   uv run scripts/deploy_to_agent_engine.py --crew-only
 
@@ -403,7 +409,8 @@ Deployment assets: `Dockerfile.planner-a2a`, `Dockerfile.control-room`, `cloudbu
 | ------- | ------------ | --- |
 | `deploy_to_agent_engine.py` fails with `400 INVALID_ARGUMENT ... reasoning_engine.spec.deployment_spec.env[0].value: Required field is not set.` | `CONTROL_ROOM_STATUS_URL` was unset in the shell, so the deploy passed an empty `env[0].value` to the Agent Engine API. | Export the variable before running the deploy: `CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" uv run scripts/deploy_to_agent_engine.py --crew-only` (and same for `--planning-only`). |
 | Cloud Build fails inside `uv sync` with `401 Unauthorized` against `us-python.pkg.dev/artifact-foundry-prod/...` | `CORP_ACCESS_TOKEN` expired (1 h lifetime) or was a CLI token (CBA-restricted). | Mint a fresh ADC token on a corp machine: `gcloud auth application-default print-access-token`, then re-run the deploy with `CORP_ACCESS_TOKEN=ya29... bash scripts/deploy_planner_a2a_cloud_run.sh`. |
-| Crew engine returns `400 FAILED_PRECONDITION ... PlanningAgent.query() got an unexpected keyword argument 'item_description'` (and the dashboard loops on `Identified: ... × N units for **** office`) | Older `deploy_to_agent_engine.py` (pre-`gcs_dir_name`) was used to run `--crew-only` and `--planning-only` in parallel — both stage to the same path in the staging bucket and one upload overwrites the other, leaving the crew engine running `PlanningAgent` code. | `git pull` to get the per-deploy `gcs_dir_name` fix, then re-run `--crew-only` (sequentially is fine, parallel is now also safe). |
+| Explainer narration is generic ("the planning agent", "the system") instead of using agent role names like "Sourcing Specialist" or "CrewAI Procurement Officer", and `GET /api/explainer/knowledge` on the deployed Dashboard returns only the 157-char fallback string. | `02-scale/.gcloudignore` was excluding `*.md`, which silently drops `ui/demo_knowledge.md` from the Cloud Build upload. `_load_explainer_knowledge()` then hits `FileNotFoundError` and returns the inline default, so the Explainer prompt has no per-agent context to ground its narration. | Drop the `*.md` rule from `.gcloudignore` (the total .md footprint is <1 MB, and a negation like `!ui/demo_knowledge.md` is brittle for future runtime-loaded markdown). Re-run `bash scripts/deploy_control_room_cloud_run.sh` and confirm with `curl https://${DASHBOARD_HOST}/api/explainer/knowledge \| python3 -c "import json,sys; print(len(json.load(sys.stdin)['knowledge']))"` (should be ~7-8 KB, not 157 bytes). |
+| Crew engine returns `400 FAILED_PRECONDITION ... PlanningAgent.query() got an unexpected keyword argument 'item_description'` (or vice versa: planner returns `ExecutionCrewAgent.query() got an unexpected keyword argument 'item_description'`) and the dashboard loops on `Identified: ... × N units for **** office` | Both engines were originally created (pre-`gcs_dir_name` fix) pointing at the same `gs://.../agent_engine/agent_engine.pkl` staging path. `agent_engines.update()` writes the new pickle to that frozen path without changing the URI, so a `--crew-only` deploy overwrites the planner pickle (and vice versa). Whichever engine cold-starts last loads the wrong code. The `gcs_dir_name` config only takes effect on `create()`, not `update()`. | Verify with `curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/${GOOGLE_CLOUD_PROJECT}/locations/us-central1/reasoningEngines/<id>"` — if both engines share the same `pickleObjectGcsUri`, recreate them with `--force` so each gets its own `gcs_dir_name` subdir: `uv run scripts/deploy_to_agent_engine.py --crew-only --force`, then `--planning-only --force`. Then re-deploy `scale-planner-a2a` with the new `PLANNING_AGENT_ENGINE_ID`. |
 
 ### Redeploying Just the Dashboard
 
