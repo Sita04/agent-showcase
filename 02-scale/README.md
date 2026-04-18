@@ -362,6 +362,12 @@ bash scripts/setup_iam.sh
 PROJECT_NUMBER=$(gcloud projects describe "${GOOGLE_CLOUD_PROJECT}" --format='value(projectNumber)')
 DASHBOARD_URL="https://scale-control-room-${PROJECT_NUMBER}.us-central1.run.app"
 
+# First-time deploy: run sequentially so --planning-only can read the freshly
+# created crew_agent_engine_id from deployment_metadata.json. On re-deploys
+# (when both engine IDs already exist in the metadata file), the two commands
+# are safe to run in parallel — each deploy stages under its own
+# `gcs_dir_name` subdir in the staging bucket, so they don't overwrite each
+# other's pickled agent code.
 CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" \
   uv run scripts/deploy_to_agent_engine.py --crew-only
 
@@ -397,6 +403,7 @@ Deployment assets: `Dockerfile.planner-a2a`, `Dockerfile.control-room`, `cloudbu
 | ------- | ------------ | --- |
 | `deploy_to_agent_engine.py` fails with `400 INVALID_ARGUMENT ... reasoning_engine.spec.deployment_spec.env[0].value: Required field is not set.` | `CONTROL_ROOM_STATUS_URL` was unset in the shell, so the deploy passed an empty `env[0].value` to the Agent Engine API. | Export the variable before running the deploy: `CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" uv run scripts/deploy_to_agent_engine.py --crew-only` (and same for `--planning-only`). |
 | Cloud Build fails inside `uv sync` with `401 Unauthorized` against `us-python.pkg.dev/artifact-foundry-prod/...` | `CORP_ACCESS_TOKEN` expired (1 h lifetime) or was a CLI token (CBA-restricted). | Mint a fresh ADC token on a corp machine: `gcloud auth application-default print-access-token`, then re-run the deploy with `CORP_ACCESS_TOKEN=ya29... bash scripts/deploy_planner_a2a_cloud_run.sh`. |
+| Crew engine returns `400 FAILED_PRECONDITION ... PlanningAgent.query() got an unexpected keyword argument 'item_description'` (and the dashboard loops on `Identified: ... × N units for **** office`) | Older `deploy_to_agent_engine.py` (pre-`gcs_dir_name`) was used to run `--crew-only` and `--planning-only` in parallel — both stage to the same path in the staging bucket and one upload overwrites the other, leaving the crew engine running `PlanningAgent` code. | `git pull` to get the per-deploy `gcs_dir_name` fix, then re-run `--crew-only` (sequentially is fine, parallel is now also safe). |
 
 ### Redeploying Just the Dashboard
 
