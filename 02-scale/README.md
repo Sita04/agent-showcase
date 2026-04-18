@@ -379,6 +379,27 @@ PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.a
 
 Deployment assets: `Dockerfile.planner-a2a`, `Dockerfile.control-room`, `cloudbuild-*.yaml`, `scripts/deploy_*_cloud_run.sh`, `scripts/deploy_to_agent_engine.py`.
 
+### Redeploying Just the Dashboard
+
+To ship UI / `app_server.py` / `demo_knowledge.md` changes without touching the Planner A2A bridge or any Agent Engine instance:
+
+```bash
+cd 02-scale
+git pull
+PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.app/" \
+  bash scripts/deploy_control_room_cloud_run.sh
+```
+
+Verify the new revision is live by checking the version stamp in the served HTML (e.g. `Control Room Dashboard v1.28`) -- a `git push` alone does **not** trigger a redeploy.
+
+**Cloud Run env vars the Dashboard depends on** (set once with `gcloud run services update scale-control-room --region=us-central1 --update-env-vars KEY=VALUE`; they survive subsequent redeploys):
+
+| Env var | Required for | Notes |
+| ------- | ------------ | ----- |
+| `PLANNER_AGENT_URL` | All workflows | Set automatically by `deploy_control_room_cloud_run.sh` from the script-time value. |
+| `GEMINI_API_KEY` | Explainer (Live API) | The `gemini-3.1-flash-live-preview` model is only served by the Google AI API, not Vertex AI. Without this, the Explainer widget renders but every Live API call returns `401`. Get a key at https://aistudio.google.com/apikey. |
+| `CONTROL_ROOM_AGENT_ENGINE_ID` | Optional | When set to a `projects/.../reasoningEngines/...` resource name, the Dashboard invokes the Control Room on Agent Engine instead of running it in-process. Leave unset (or set to `local`) to run in-process. |
+
 ### Agent Engine Deployment Details
 
 Useful subcommands of `scripts/deploy_to_agent_engine.py`:
