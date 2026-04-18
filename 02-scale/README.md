@@ -151,17 +151,24 @@ The **Control Room Dashboard** visualizes the entire multi-agent orchestration i
 
 ![Scale Agents Control Room Dashboard](./assets/dashboard.png)
 
-**Terminal 1** -- Start the A2A Planner Server:
+The dashboard mounts the A2A planner app at `/` on its own process, so the Planner A2A **must** run on a different port than the dashboard. The dashboard refuses to start if `PLANNER_AGENT_URL` points back at its own listen port (a self-loop produces an infinite Control Room -> A2A -> Control Room flood).
+
+**Terminal 1** -- Start the A2A Planner Server (port 8081):
 ```bash
 export PYTHONPATH=.
-export PORT=8080
+export PORT=8081
+# So the planner can push per-step Planner / Executor bubbles back
+# to the dashboard's /api/push_status endpoint.
+export CONTROL_ROOM_STATUS_URL=http://127.0.0.1:8080/api/push_status
 uv run agents/planner/a2a_server.py
 ```
 
-**Terminal 2** -- Start the Dashboard App Server:
+**Terminal 2** -- Start the Dashboard App Server (port 8080):
 ```bash
 export PYTHONPATH=.
-export PORT=8000
+# PORT defaults to 8080 — leave unset or set explicitly.
+export PORT=8080
+export PLANNER_AGENT_URL=http://127.0.0.1:8081
 # Force the in-process ADK Control Room (skip deployment_metadata.json
 # and any remote Agent Engine wiring). Use this for fully local runs.
 export CONTROL_ROOM_AGENT_ENGINE_ID=local
@@ -170,28 +177,41 @@ export CONTROL_ROOM_AGENT_ENGINE_ID=local
 uv run app_server.py
 ```
 
-Open [http://localhost:8000](http://localhost:8000) in your browser.
+Open [http://localhost:8080](http://localhost:8080) in your browser.
+
+> **Without `CONTROL_ROOM_STATUS_URL` on the planner**, the dashboard renders only Control Room + A2A bubbles -- Planner (LangGraph) and Executor (CrewAI) bubbles silently drop because the planner's status pushes go to a non-existent endpoint.
 
 > **`CONTROL_ROOM_AGENT_ENGINE_ID` resolution:**
 > * **unset** -- the dashboard reads `deployment_metadata.json` (production wiring).
 > * **`local`**, **`none`**, or empty string -- skip the metadata file and run the Control Room in-process. Use this for local development to avoid Agent Engine permission errors.
 > * **a `projects/.../reasoningEngines/...` resource name** -- invoke that remote Agent Engine.
 
-> **Port conflicts:** if `8080` or `8000` are taken (e.g. by another local server), pick free ports -- e.g. `PORT=8081` for the planner and `PORT=8001` for the dashboard. Update `PLANNER_AGENT_URL` accordingly when starting the dashboard:
-> ```bash
-> export PLANNER_AGENT_URL="http://localhost:8081/"
-> ```
+> **Port conflicts:** if `8080` or `8081` are taken, pick any other free pair -- just keep them different and update both `PORT` (planner) and `PLANNER_AGENT_URL` (dashboard) so they match.
 
 Dashboard features:
-* **Real-time thought stream** -- color-coded bubbles for Control Room (blue), Planner (purple), and Executor (green)
+* **Real-time thought stream** -- color-coded bubbles for Control Room (blue), A2A Protocol, Planner (purple), Executor (green), and Re-Planner
 * **Executor visibility** -- monitor tool actions (product search, budget check, purchase order) as they happen
-* **Orchestration graph** -- visual highlighting of active stage (Planning -> Executing -> Re-planning -> Completed)
+* **Orchestration graph** -- sidebar nodes light up as state advances: `START -> Control Room (ADK) -> Planner (LangGraph) -> Executor (CrewAI) -> COMPLETED`
+* **Guided CUJ buttons** -- one-click launchers in the Explainer for CUJ 1, 2, and 3
 * **Security enforcement** -- instant "Identity Shield" alerts when IAM blocks destructive actions
-* **Explainer AI** -- side widget powered by **Gemini 3.1 Flash Live**: streams a transcript-as-text reply for Q&A and CUJ narration, with optional voice playback toggled by the Narrate button
+* **Explainer AI** -- side widget powered by **Gemini 3.1 Flash Live**: streams a transcript-as-text reply for Q&A and CUJ narration, with optional voice playback toggled by the Narrate button. See the next section for grounding, reconnect, and suggestion-rotation behavior.
 
 #### Explainer AI (Gemini 3.1 Flash Live)
 
 The Explainer widget consolidates Q&A, live CUJ narration, and voice into a single Live API session. The dashboard opens one WebSocket (`/api/explainer/live`) and, per turn, the backend opens a fresh Live session with `response_modalities=["AUDIO"]` and `output_audio_transcription`. Audio (24 kHz mono PCM) and the matching transcript stream back together; the transcript is rendered into the chat bubble as it arrives, and the audio is played via the Web Audio API only when the **Narrate** button is on. First chunk typically lands in under a second.
+
+The Explainer is grounded by `ui/demo_knowledge.md`, which now covers per-agent runtime detail (Vertex AI Vector Search over Mercari, the CrewAI Sourcing Specialist role, mock OMS PO IDs, the `/api/push_status` wiring), the rationale behind each framework choice, and one-line summaries of every product (ADK, LangGraph, CrewAI, A2A, MCP, Agent Engine, Live API, Gemini 3).
+
+**Live behavior:**
+
+* **Google Search grounding (chat path only).** Chat turns enable `Tool(google_search=GoogleSearch())` so the Explainer can answer "what is X" / "compare X vs Y" questions about ADK, LangGraph, CrewAI, A2A, MCP, Agent Engine, the Live API, and Gemini 3 with current docs. CUJ-narration turns intentionally skip the tool to keep narration deterministic.
+* **Auto-reconnect with exponential backoff.** If the WebSocket drops (server restart, network blip), the client retries indefinitely with a `0.5s -> 1s -> 2s -> 4s -> 8s -> 10s` backoff, capped at 10s per attempt. A single in-flight reconnect is enforced by a guard flag so concurrent turn requests don't open duplicate sockets.
+* **Mid-turn retry.** If the socket closes after a turn is sent but before `turn_complete`, the client transparently re-opens and re-sends the turn once.
+* **Disable-on-disconnect UI.** While disconnected, the input, Send button, and suggestion buttons are disabled and the placeholder swaps to `Explainer disconnected -- reconnecting...`. Everything re-enables automatically once the socket is back.
+* **State-rotating suggestion buttons.** The four prompt chips below the chat rotate between three sets based on demo state:
+  * **Onboarding** (no CUJs run yet): "What is this demo?", "Explain the architecture", "What should I try first?", "Why use multi-agent for this?"
+  * **Mid-journey** (CUJ 1 or 2 done): "What did the agents just do?", "How does Agent Identity protect this demo?", "What is the A2A protocol?", "What should I try next?"
+  * **Exploration** (CUJ 3 done): "What's the benefit of using Agent Engine?", "Compare LangGraph and CrewAI", "How does MCP fit into the architecture?", "What is the Gemini Live API?"
 
 The `gemini-3.1-flash-live-preview` model is currently only served by the Google AI API (not Vertex AI), so the dashboard requires a Gemini API key:
 
@@ -210,12 +230,12 @@ The Control Room now functions as a fully-compliant **A2A Host**, making it disc
 
 To verify discovery:
 ```bash
-curl http://localhost:8000/.well-known/agent-card.json
+curl http://localhost:8080/.well-known/agent-card.json
 ```
 
 To invoke via A2A:
 ```bash
-curl -X POST http://localhost:8000/ \
+curl -X POST http://localhost:8080/ \
   -d '{"jsonrpc": "2.0", "id": 1, "method": "message/send", "params": {"message": {"messageId": "msg-001", "parts": [{"text": "Order 2 Mugs for Northeast"}], "role": "user"}}}' \
   -H "Content-Type: application/json"
 ```
@@ -244,7 +264,7 @@ uv run agents/control_room/main.py
 
 ### Local CUJ Walkthrough
 
-With both servers running and `CONTROL_ROOM_AGENT_ENGINE_ID=local` set on the dashboard, drive each CUJ from [http://localhost:8000](http://localhost:8000):
+With both servers running and `CONTROL_ROOM_AGENT_ENGINE_ID=local` set on the dashboard, drive each CUJ from [http://localhost:8080](http://localhost:8080):
 
 1. **CUJ 1 -- Happy Path:** dispatch the restock prompt. Watch the planner stream "Sourcing -> Budget Check -> Purchase Order" stages. The procurement report card renders with `Outcome: SUCCESS` and a generated PO ID.
 2. **CUJ 2 -- Identity Shield:** dispatch the destructive prompt. The planner routes to the security path; Identity Shield blocks the IAM probe and the Control Room finishes immediately with `SECURITY BLOCK` -- the Re-planner stage stays cold (single A2A call, no retry).
@@ -261,8 +281,11 @@ With both servers running and `CONTROL_ROOM_AGENT_ENGINE_ID=local` set on the da
 | Symptom | Likely Cause | Fix |
 | ------- | ------------ | --- |
 | Dashboard startup fails with `PERMISSION_DENIED ... aiplatform.reasoningEngines.get` | `deployment_metadata.json` is being auto-loaded and pointing at a remote Agent Engine you can't access. | Set `CONTROL_ROOM_AGENT_ENGINE_ID=local` before starting `app_server.py` (skips the metadata file). |
-| `[Errno 48] Address already in use` on `8080` or `8000` | Another local process is using the default port (e.g. another `uvicorn`). | Use free ports: `PORT=8081` for the planner, `PORT=8001` for the dashboard. Set `PLANNER_AGENT_URL=http://localhost:8081/` on the dashboard. |
-| Dashboard hangs on "Routing the request to the Planning Agent..." | A2A planner not reachable, or `PLANNER_AGENT_URL` mismatched. | Confirm `curl http://localhost:8080/.well-known/agent-card.json` returns `200`; check `PLANNER_AGENT_URL` on the dashboard matches the planner's actual port. |
+| Dashboard refuses to start with `RuntimeError: PLANNER_AGENT_URL=... points back at this server` | `PLANNER_AGENT_URL` resolves to the dashboard's own port. The A2A app is mounted at `/`, so a self-pointing URL produces an infinite loop. | Run the Planner A2A on a different port and set `PLANNER_AGENT_URL` accordingly: `PORT=8081 ... agents/planner/a2a_server.py` and `PLANNER_AGENT_URL=http://127.0.0.1:8081 ... app_server.py`. |
+| `[Errno 48] Address already in use` on `8080` or `8081` | Another local process is using the default port (e.g. another `uvicorn`). | Pick any free pair -- just keep them different and update both `PORT` (planner) and `PLANNER_AGENT_URL` (dashboard) to match. |
+| Dashboard hangs on "Routing the request to the Planning Agent..." | A2A planner not reachable, or `PLANNER_AGENT_URL` mismatched. | Confirm `curl http://localhost:8081/.well-known/agent-card.json` returns `200`; check `PLANNER_AGENT_URL` on the dashboard matches the planner's actual port. |
+| Right panel shows Control Room + A2A bubbles only -- no Planner / Executor bubbles | Planner is not pushing per-step status to the dashboard's `/api/push_status`. | Set `CONTROL_ROOM_STATUS_URL=http://127.0.0.1:8080/api/push_status` in the planner's terminal before starting `agents/planner/a2a_server.py`. |
+| Explainer shows `Disconnected` and input is greyed out | WebSocket dropped (server restart, network blip). | The client auto-reconnects with exponential backoff (cap 10s) -- wait a few seconds; status returns to `Gemini 3.1 Flash Live` automatically. If it persists, check the dashboard server logs for `/api/explainer/live` errors. |
 | Workflow returns immediately with `🛡️ Security block detected` for a benign prompt | Planner LLM mis-classified the intent as `is_destructive`. | Re-phrase to remove imperative deletion verbs ("delete", "remove", "wipe"). |
 | Re-planner doesn't fire for a wrong-item failure | LLM produced a terminal-classified outcome (e.g. `Over Budget`) instead of a retryable one. | Re-dispatch -- LLM output is non-deterministic. Confirm via `❌ Fatal Error: Terminal failure.` vs `💡 Triggering Re-Planner Agent...` in stdout. |
 | Tests fail with `coroutine ... not subscriptable` | Pre-existing issue in `tests/integration/test_planner_graph.py` unrelated to local config. | Skip with `-k 'not test_planner_graph'` or run only `tests/unit/` and `tests/e2e/` while debugging local changes. |
