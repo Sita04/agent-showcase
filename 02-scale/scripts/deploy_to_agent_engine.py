@@ -125,6 +125,11 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
     config = {
         "display_name": "Execution Crew (CUJ 2)",
         "staging_bucket": STAGING_BUCKET,
+        # Unique staging subdir so parallel `--crew-only` / `--planning-only` /
+        # `--control-room-only` deploys don't overwrite each other's pickled
+        # agent in GCS. Without this, both engines can end up pulling the
+        # same code and one engine runs the wrong agent class.
+        "gcs_dir_name": "execution-crew",
         "min_instances": 1,
         "serviceAccount": EXECUTION_SA,
         "requirements": [
@@ -207,6 +212,9 @@ def deploy_planning_agent(args: argparse.Namespace) -> str:
     config = {
         "display_name": "Planning Agent (Identity Shield - CUJ 2)",
         "staging_bucket": STAGING_BUCKET,
+        # See `deploy_execution_crew` for why each deploy needs a unique
+        # `gcs_dir_name`.
+        "gcs_dir_name": "planning-agent",
         "min_instances": 1,
         "serviceAccount": PLANNING_SA,
         "requirements": [
@@ -346,6 +354,9 @@ def deploy_control_room_agent(args: argparse.Namespace) -> str:
     remote_agent = agent_engines.create(
         app,
         display_name='Control Room Agent (CUJ 2)',
+        # See `deploy_execution_crew` for why each deploy needs a unique
+        # `gcs_dir_name`.
+        gcs_dir_name="control-room",
         min_instances=1,
         requirements=[
             "google-adk==2.0.0a3",
