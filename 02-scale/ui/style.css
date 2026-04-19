@@ -566,6 +566,9 @@ input[type="text"]:focus {
 }
 
 .explainer-message.debug {
+    /* Hidden by default. Bubbles are still created in JS so flipping this
+       to `block` (or removing the rule) re-enables debug output. */
+    display: none;
     align-self: stretch;
     width: 100%;
     max-width: 100%;

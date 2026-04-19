@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.36 - Live WS reconnect with backoff + mid-turn retry
-console.log('[DEBUG] Script v1.36 starting load...');
+// Scale Agents Dashboard Logic v1.38 - Live WS reconnect with backoff + mid-turn retry
+console.log('[DEBUG] Script v1.38 starting load...');
 
 // Global state
 let currentSessionId = 'demo_session_1';
@@ -62,6 +62,18 @@ const ROLE_LABELS = {
     planner: 'Planner (LangGraph)',
     executor: 'Executor (CrewAI)',
     a2a: 'A2A Protocol',
+};
+
+// Friendly agent names sent to the Live model so it narrates with the
+// canonical "Control Room / Planner / Executor" terminology instead of
+// the raw role strings ("execution", "replanning", "system", etc.).
+const AGENT_NAMES = {
+    control_room: 'Control Room',
+    planner: 'Planner',
+    executor: 'Executor',
+    execution: 'Executor',
+    system: 'Control Room',
+    replanning: 'Planner',
 };
 
 // Map role to CSS class for the bubble
@@ -204,18 +216,22 @@ function handleEvent(event) {
             currentBubbleRole = null;
             const output = event.output;
             const text = typeof output === 'string' ? output : (output.report || '');
+            const status = output.status || 'Success';
             setActiveNode('COMPLETED');
             flowFinalized = true;
             if (text && text !== lastFinalReport) {
                 lastFinalReport = text;
-                appendMessage(text, 'agent', output.status === 'Blocked' ? 'security' : 'result');
-                finalReportForExplainer = text;
+                appendMessage(text, 'agent', status === 'Blocked' ? 'security' : 'result');
+                const completedCuj = activeCuj;
                 if (activeCuj) {
-                    cujForExplainer = activeCuj;
                     completedCujIds.add(activeCuj.id);
                     activeCuj = null;
                     updateExplainerCujButtons();
                 }
+                // End-of-CUJ: send a dedicated summary turn instead of
+                // narrating the final adk_event as just another agent step.
+                queueExplainerSummary({ cuj: completedCuj, finalReport: text, status });
+                return;
             }
         } else if (event.node_name && event.node_name !== 'N/A' && !flowFinalized) {
             setActiveNode(event.node_name);
@@ -334,10 +350,12 @@ function detectCujFromPrompt(prompt) {
 }
 
 function simplifyEvent(event, finalReport = '') {
+    const role = event.role || '';
     const simplified = {
         type: event.type,
         name: event.name || '',
-        role: event.role || '',
+        role: role,
+        agent: AGENT_NAMES[role] || 'Control Room',
         node_name: event.node_name || '',
         text: '',
         status: '',
@@ -673,8 +691,10 @@ function queueExplainerObservation(event, options = {}) {
     // becomes exactly one call to the Live model. Sealing is independent of
     // whether a previous call is still in flight — we never lose chunks to
     // the in-flight check anymore.
-    const role = simplified.role || '';
-    if (pendingExplainerObservation && pendingExplainerRole !== role) {
+    // Key by friendly agent name so role variants (executor/execution,
+    // control_room/system, planner/replanning) merge into one chunk.
+    const agent = simplified.agent || 'Control Room';
+    if (pendingExplainerObservation && pendingExplainerRole !== agent) {
         sealPendingExplainerChunk();
     }
 
@@ -682,9 +702,10 @@ function queueExplainerObservation(event, options = {}) {
         pendingExplainerObservation.current_events.push(simplified);
         pendingExplainerObservation.final_report = options.finalReport || pendingExplainerObservation.final_report;
     } else {
-        pendingExplainerRole = role;
+        pendingExplainerRole = agent;
         pendingExplainerObservation = {
             current_events: [simplified],
+            agent: agent,
             active_cuj: options.cuj || activeCuj,
             completed_cujs: Array.from(completedCujIds),
             final_report: options.finalReport || ''
@@ -711,6 +732,33 @@ function queueExplainerObservation(event, options = {}) {
         sealPendingExplainerChunk();
         drainExplainerQueue();
     }, 10000);
+}
+
+function queueExplainerSummary({ cuj, finalReport, status }) {
+    // Seal whatever is pending so the summary lands after any in-flight
+    // per-agent narration for this CUJ.
+    if (pendingExplainerObservation) {
+        sealPendingExplainerChunk();
+    }
+    const payload = {
+        kind: 'summary',
+        cuj: cuj || null,
+        final_report: finalReport || '',
+        status: status || 'Success',
+        completed_cujs: Array.from(completedCujIds)
+    };
+    const debugBubble = createExplainerBubble('agent', 'debug');
+    setBubbleContent(
+        debugBubble,
+        '→ Live model (summary)\n' + JSON.stringify(
+            { cuj: payload.cuj, status: payload.status, final_report: payload.final_report },
+            null,
+            2
+        ),
+        false
+    );
+    explainerChunkQueue.push(payload);
+    drainExplainerQueue();
 }
 
 function sealPendingExplainerChunk() {

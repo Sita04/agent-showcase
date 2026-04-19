@@ -207,20 +207,56 @@ USER QUESTION:
 """.strip()
 
 
+def _build_summary_prompt(cuj, final_report, status, completed_cujs) -> str:
+    knowledge = _load_explainer_knowledge()
+    cuj_obj = cuj or {}
+    return f"""
+You are wrapping up a CUJ in the Scale Agents live demo.
+
+In 2-3 short sentences total:
+1. Recap what just happened — which agents ran and what they accomplished
+   (or, if blocked/failed, why). Refer to the agents using exactly these
+   names: "Control Room", "Planner", "Executor". Do not invent other
+   names like "Sourcing Specialist" or "Procurement Officer".
+2. State the point of this CUJ — the demo concept it illustrates.
+
+Use plain public-facing language. No preamble, no implementation details,
+no recommendations of other CUJs.
+
+PUBLIC DEMO KNOWLEDGE:
+{knowledge}
+
+CUJ:
+{json.dumps(cuj_obj, ensure_ascii=False)}
+
+OUTCOME STATUS:
+{status or 'Success'}
+
+FINAL REPORT:
+{final_report or ''}
+
+COMPLETED CUJS SO FAR:
+{json.dumps(completed_cujs or [], ensure_ascii=False)}
+""".strip()
+
+
 def _build_observe_prompt(current_events, recent_events, active_cuj, completed_cujs, final_report) -> str:
     knowledge = _load_explainer_knowledge()
     # Each `current_events` chunk now contains the events from a single agent
     # (the client groups consecutive same-role events and seals the chunk on
     # role change). Narrate that one agent's run in a few sentences.
     events = current_events if isinstance(current_events, list) else [current_events or {}]
-    role = (events[0].get("role") if events else "") or "the agent"
+    agent = (events[0].get("agent") if events else "") or "Control Room"
     return f"""
 You are narrating the Scale Agents live demo as it runs.
-The events below are all from one agent ({role}). In ONE short sentence
-(maximum two), name the agent (Control Room, Planner, Sourcing Specialist,
-Procurement Officer, etc.) and say what it just did. Be terse — no preamble,
-no recap of prior turns, no implementation details. If a final report is
-present, summarize the outcome in one sentence.
+The events below are all from the {agent}. In ONE short sentence
+(maximum two), refer to the agent as exactly "{agent}" (one of:
+"Control Room", "Planner", "Executor") and say what it just did. Do not
+invent other names like "Sourcing Specialist" or "Procurement Officer";
+if the text mentions sub-agents, attribute the action to the {agent}.
+Be terse — no preamble, no recap of prior turns, no implementation
+details. If a final report is present, summarize the outcome in one
+sentence.
 Do not suggest, recommend, or mention any other CUJ — focus only on the current events.
 
 PUBLIC DEMO KNOWLEDGE:
@@ -302,6 +338,13 @@ async def explainer_live(ws: WebSocket):
                     payload.get("active_cuj"),
                     payload.get("completed_cujs", []),
                     payload.get("final_report", ""),
+                )
+            elif kind == "summary":
+                prompt = _build_summary_prompt(
+                    payload.get("cuj"),
+                    payload.get("final_report", ""),
+                    payload.get("status", "Success"),
+                    payload.get("completed_cujs", []),
                 )
             else:
                 continue
