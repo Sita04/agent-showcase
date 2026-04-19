@@ -145,8 +145,11 @@ class PlannerNodes:
         logger.info("--- [Planner] Step 2: Delegating to Execution Swarm (CrewAI) ---")
         
         task_description = state.get("item_description") or "Unknown Item"
-        budget = state.get("max_budget") or 50.0
+        per_unit_budget = state.get("max_budget") or 300.0
         quantity = state.get("quantity_needed") or 1
+        # Crew's procurement task validates total cost ({quantity} * price)
+        # against this single number, so pass total budget = per-unit * qty.
+        budget = per_unit_budget * quantity
         loop = asyncio.get_running_loop()
 
         async def publish_execution_update(msg: str, name: str = "execution"):

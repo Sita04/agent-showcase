@@ -6,19 +6,19 @@ from mock_oms_mcp.server import check_budget, create_purchase_order
 class TestCheckBudget:
     def test_amount_within_budget(self):
         result = check_budget(50.0, "office_supplies")
-        assert result == {"approved": True, "remaining": 50.0}
+        assert result == {"approved": True, "remaining": 1950.0}
 
     def test_amount_at_limit(self):
-        result = check_budget(100.0, "collectibles")
+        result = check_budget(2000.0, "collectibles")
         assert result == {"approved": True, "remaining": 0.0}
 
     def test_amount_exceeds_budget(self):
-        result = check_budget(150.0, "marketing")
-        assert result == {"approved": False, "reason": "Exceeds budget of $100.0"}
+        result = check_budget(2500.0, "marketing")
+        assert result == {"approved": False, "reason": "Exceeds budget of $2000.0"}
 
     def test_zero_amount(self):
         result = check_budget(0.0, "any")
-        assert result == {"approved": True, "remaining": 100.0}
+        assert result == {"approved": True, "remaining": 2000.0}
 
     def test_negative_amount(self):
         result = check_budget(-10.0, "any")

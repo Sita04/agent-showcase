@@ -8,7 +8,7 @@ class TestDefaultConfig:
     def test_valid_construction(self):
         cfg = DefaultConfig(GOOGLE_CLOUD_PROJECT="my-project")
         assert cfg.GOOGLE_CLOUD_PROJECT == "my-project"
-        assert cfg.BUDGET_LIMIT == 100.0
+        assert cfg.BUDGET_LIMIT == 2000.0
         assert cfg.DEFAULT_VENDOR_ID == "mercari_seller"
         assert cfg.AGENT_MODEL.startswith("vertex_ai/")
         assert cfg.EMBEDDER_MODEL == "text-embedding-005"

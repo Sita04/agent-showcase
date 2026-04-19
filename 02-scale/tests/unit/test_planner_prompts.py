@@ -15,7 +15,7 @@ class TestAlertExtraction:
         assert extraction.region == "Northeast"
         assert extraction.item_description == "Vintage Sci-Fi Mugs"
         assert extraction.quantity_needed == 500
-        assert extraction.max_budget == 50.0
+        assert extraction.max_budget == 300.0
 
     def test_custom_values(self):
         extraction = AlertExtraction(

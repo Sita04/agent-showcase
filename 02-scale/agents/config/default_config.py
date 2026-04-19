@@ -44,7 +44,7 @@ class DefaultConfig:
     # Tool Settings
     DEFAULT_SIMILARITY_THRESHOLD: float = 0.7
     DEFAULT_VENDOR_ID: str = "mercari_seller"
-    BUDGET_LIMIT: float = 100.0
+    BUDGET_LIMIT: float = 2000.0
 
     def __post_init__(self):
         if not self.GOOGLE_CLOUD_PROJECT:

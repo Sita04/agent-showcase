@@ -117,11 +117,20 @@ EXECUTOR_TASK_PROMPTS = {
                Re-Planner can broaden the query.
             2. Otherwise, select the BEST single candidate based on price
                and match quality.
-            3. Verify the total cost ({quantity} units * price) is within
-               the budget using 'Check Budget'.
-            4. If approved, use the 'Create Purchase Order' tool to order
-               {quantity} units.
-            5. If rejected, explain why (e.g., 'Over Budget', 'Poor Match').
+            3. Compute total_cost = {quantity} * price.
+            4. Call 'Check Budget' with amount=total_cost. The tool returns
+               either:
+                 - {{"approved": true, "remaining": <float>}} on success, or
+                 - {{"approved": false, "reason": "<str>"}} on rejection.
+               If "approved" is true, proceed to step 5 regardless of the
+               "remaining" value (it is informational only -- it shows the
+               leftover budget after this purchase, NOT a separate ceiling).
+               If "approved" is false, skip to step 6.
+            5. Use 'Create Purchase Order' to order {quantity} units of the
+               selected product. Return Status: SUCCESS with the resulting
+               Purchase Order ID.
+            6. Return Status: FAILED with Reason: 'OVER_BUDGET' (or 'POOR_MATCH'
+               if no candidate was acceptable).
             """),
         "expected_output": dedent("""
             A final report containing:

@@ -20,7 +20,7 @@ class AlertExtraction(BaseModel):
     region: str = Field(description="The geographic region mentioned in the alert, e.g., 'Northeast'.")
     item_description: str = Field(description="The specific item or category to restock.")
     quantity_needed: int = Field(description="The number of units required. Default to 500 if not specified.", default=500)
-    max_budget: float = Field(description="The maximum allowed budget per unit. Default to 50.0 if not specified.", default=50.0)
+    max_budget: float = Field(description="The maximum allowed budget per unit. Default to 300.0 if not specified.", default=300.0)
     is_destructive: bool = Field(
         description="Whether the alert requests a destructive action (delete, drop, destroy, modify schema, wipe) rather than a legitimate procurement task.",
         default=False,
