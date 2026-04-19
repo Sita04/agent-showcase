@@ -1,6 +1,6 @@
 # Personalized Shopping Agent - "Shopping Squad"
 
-A premium, persona-driven shopping concierge application powered by Gemini and built with the Retail Agent Development Suite (ADK) and A2UI (Server-Driven UI).
+A premium, persona-driven shopping concierge application powered by Gemini and built with the  Agent Development Suite (ADK 2.0)
 
 ## 🌟 Features
 
@@ -15,69 +15,68 @@ A premium, persona-driven shopping concierge application powered by Gemini and b
 - **Contextual Action Cards**: Product results are displayed in beautiful, actionable cards with direct "Add to Cart" capabilities.
 - **Full-Width Follow-Up Menus**: At the end of a search, a full-width card presents natural follow-up options based on your persona.
 
-### 🛒 Advanced Cart Management
-- **Integrated Cart**: A side drawer cart that slides in and out, keeping your shopping flow uninterrupted.
-- **Quantity Counter**: Easily see how many items you have selected.
-- **Silent Actions**: Adding or removing items from the cart updates the UI smoothly without cluttering the chat history with system messages.
+### 🛒 Cart Management
+- **A2UI Rendered Cart**: The cart is rendered dynamically as rich action cards directly in the chat interface, showing product images, names, and prices.
+- **Real-time Budget Warnings**: The agent actively monitors the cart total against the persona's budget and issues warnings if exceeded.
 - **Stripe Checkout**: Ready-to-use integration for creating payment sessions via `/api/create-checkout-session`.
 
 ## 🛠️ Technology Stack
 
 - **Backend**: Python, FastAPI / Starlette
 - **Frontend**: Vanilla JavaScript, CSS3 (with advanced glassmorphism and CSS variables), Semantic HTML5
-- **AI Integration**: Google Gen AI SDK (Gemini) via ADK
+- **AI Integration**: Agent Framework - ADK 2.0
 - **UI Framework**: A2UI (Server-Driven UI) for dynamic card rendering
 
 ## 🚀 Getting Started
 
-### Prerequisites
-- Python 3.10+
-- Vertex AI Project 
-- Stripe Secret Key (set as `STRIPE_SECRET_KEY` environment variable)
+### 📋 Setup & Installation
 
-### Running the Application
+1. **Install Dependencies**:
+   This project uses `uv` for dependency management. Install all required packages with:
+   ```bash
+   uv sync
+   ```
 
-#### Using `uv` (Recommended)
+2. **Configure Environment**:
+   Create a `.env` file in the `agents/` directory and populate it with your configuration:
+   ```bash
+   # In agents/.env
+   GOOGLE_CLOUD_PROJECT="your_project_id"
+   GOOGLE_CLOUD_LOCATION="us-central1"
+   GCS_BUCKET="your_staging_bucket"
+   STRIPE_SECRET_KEY="your_stripe_secret_key"
+   APP_URL="https://your-ui-service-url.a.run.app"
+   ```
 
-This project uses `uv` for dependency management.
+### 🚀 Running the Application
 
-1. Start the backend server:
+1. **Start the Backend Server**:
    ```bash
    uv run python app_server.py
    ```
+   This will start the FastAPI server handling the UI and agent interaction.
 
-2. Open your browser and navigate to `http://localhost:8000` (or as configured).
+2. **Access the UI**:
+   Open your browser and navigate to `http://localhost:8080` (or the port displayed in the terminal).
 
-#### Using Docker
+### ☁️ Deployment
 
-You can also run the application in a Docker container.
+#### 1. Deploy Agent to Vertex AI Agent Engine
+To deploy the Reasoning Engine (the agent logic) to Vertex AI, run:
+```bash
+uv run deploy.py
+```
+This script packages the code and deploys it to your configured Google Cloud project.
 
-1. Build the Docker image:
-   ```bash
-   docker build -t shopping-squad .
-   ```
-
-2. Run the container:
-   ```bash
-   docker run -p 8080:8080 \
-     -e STRIPE_SECRET_KEY="your_stripe_secret_key" \
-     -e GOOGLE_CLOUD_PROJECT="your_project_id" \
-     shopping-squad
-   ```
-
-### ☁️ Deploying to Google Cloud Run
-
-To deploy the application to Google Cloud Run:
-
-1. Ensure you have the Google Cloud SDK installed and are authenticated.
-2. Run the following command to deploy from source:
-   ```bash
-   gcloud run deploy shopping-squad \
-     --source . \
-     --region us-central1 \
-     --allow-unauthenticated \
-     --set-env-vars="GOOGLE_CLOUD_PROJECT=your_projectid,GOOGLE_CLOUD_LOCATION=your_location,GOOGLE_GENAI_USE_VERTEXAI=1,MCP_SERVER_URL=https://ac-web2-761793285222.us-central1.run.app/mcp,MCP_DATASET_ID=mercari1m_mm2,STRIPE_SECRET_KEY=your_stripe_secret_key"
-   ```
+#### 2. Deploy UI to Google Cloud Run
+To deploy the frontend and API server to Cloud Run, use the following command:
+```bash
+gcloud run deploy shopping-squad-ui \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=your_project_id,GOOGLE_CLOUD_LOCATION=us-central1,APP_URL=https://your-ui-service-url.a.run.app,STRIPE_SECRET_KEY=your_stripe_secret_key"
+```
 
 ## 📁 Project Structure
 
@@ -97,59 +96,36 @@ To deploy the application to Google Cloud Run:
 - `pyproject.toml`: Dependency management configuration.
 - `architecture.md`: High-level architecture documentation.
 
+## 🏗️ Core Architectural Patterns
+
+The Shopping Squad leverages several advanced patterns to deliver a premium experience:
+
+### 1. Multi-Agent Orchestration (ADK)
+The system uses the Retail Agent Development Suite (ADK) to coordinate multiple specialized agents:
+- **Planner Agent**: Decomposes vague user requests into a structured, multi-component shopping plan with budget allocations.
+- **Scout Agents**: Run in parallel to search for real products matching the plan components using Model Context Protocol (MCP) tools.
+- **Evaluator Agent**: Acts as a gatekeeper, verifying that the combined cost of the found items fits within the user's master budget.
+
+### 2. A2UI (Server-Driven UI)
+Instead of returning plain text, the backend generates JSON payloads that follow the A2UI schema. The frontend (`ui/app.js`) interprets these payloads to render rich interactive cards, carousels, and action buttons. This keeps the UI perfectly synchronized with the agent's state.
+
+### 3. System Speaker Pattern
+To bypass ADK's default behavior of rendering internal node traces in the UI, the system uses a "System Speaker" pattern. Critical user-facing messages are piped through a minimal presentation agent, forcing the frontend to render them as clean chat bubbles.
+
+### 4. Structured Data Transfer via Hidden Comments
+To pass complex structured data (like product options or cart states) from the agent to the backend/frontend without cluttering the chat transcript, the system uses hidden HTML comments:
+- `<!--[JSON_PAYLOAD] ... [/JSON_PAYLOAD]-->` for passing search results.
+- `<!--[CART_PAYLOAD] ... [/CART_PAYLOAD]-->` for passing cart state during checkout.
+
 ## 🔄 Application Flow
 
-Here is a high-level summary of how the application processes a user request:
+Here is how the application processes a user request:
 
-1. **User Input**: The user interacts with the web UI (`ui/app.js`), sending a prompt to the backend.
-2. **Server Entry**: The request hits the `/api/chat` endpoint in `app_server.py`.
-3. **Agent Orchestration**: `app_server.py` invokes the ADK workflow runner using the `root_agent` defined in `agents/agent.py`.
-4. **Planning**: The `shopping_workflow` (in `agent.py`) calls the **Planner Agent** (`agents/planner.py`) to create a structured shopping plan based on the user's request and persona.
-5. **Human-in-the-Loop**: The plan is presented to the user for approval.
-6. **Parallel Search**: Once approved, the workflow spins up parallel **Scout Agents** (`agents/scout.py`) to search for items using MCP tools.
-7. **Evaluation**: The **Evaluator Agent** (`agents/evaluator.py`) checks if the found items fit the budget and plan.
-8. **UI Rendering**: Results are rendered into A2UI cards via `agents/views/search.py` and sent back to the frontend.
-9. **Checkout**: When the user finalizes their selection, a Stripe checkout session is created.
-
-### Architecture Diagram
-
-```mermaid
-graph TD
-    subgraph Frontend
-        UI["Web UI (app.js)"]
-    end
-
-    subgraph Backend ["FastAPI Server (app_server.py)"]
-        API["/api/chat"]
-        Views["Views (search.py)"]
-    end
-
-    subgraph ADK_Workflow ["ADK Workflow (agent.py)"]
-        Root["Root Workflow"]
-        Planner["Planner Agent"]
-        Scout["Scout Agents (Parallel)"]
-        Evaluator["Evaluator Agent"]
-    end
-
-    subgraph External ["External Services"]
-        MCP["MCP Search Backend"]
-        Stripe["Stripe API"]
-    end
-
-    UI -->|1. Prompt| API
-    API -->|2. Trigger| Root
-    Root -->|3. Plan| Planner
-    Planner -->|4. Plan| Root
-    Root -->|5. Approval Request| UI
-    UI -->|6. Approval| Root
-    Root -->|7. Search| Scout
-    Scout -->|8. Query| MCP
-    MCP -->|9. Products| Scout
-    Scout -->|10. Results| Root
-    Root -->|11. Verify| Evaluator
-    Evaluator -->|12. Validation| Root
-    Root -->|13. Render Data| Views
-    Views -->|14. A2UI Cards| UI
-    UI -->|15. Checkout| API
-    API -->|16. Pay Link| Stripe
-```
+1. **User Input**: The user sends a prompt (and optionally an image) via the Web UI.
+2. **Server Entry**: The request hits `app_server.py` at `/api/chat`.
+3. **Planning**: The workflow invokes the **Planner Agent** to create a structured plan.
+4. **Human-in-the-Loop (HITL)**: The plan is presented to the user via A2UI cards for approval.
+5. **Parallel Search**: Upon approval, parallel **Scout Agents** search for items using MCP tools.
+6. **Evaluation**: The **Evaluator** checks if the items fit the budget.
+7. **Selection**: Results are rendered as A2UI cards. The user selects items to add to the cart.
+8. **Checkout**: The user triggers checkout, and the system generates a Stripe payment link.
