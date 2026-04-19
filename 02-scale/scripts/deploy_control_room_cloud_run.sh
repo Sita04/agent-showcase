@@ -2,7 +2,25 @@
 
 set -euo pipefail
 
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-gcp-samples-ic0}"
+# Load demo config from 02-scale/.env so GOOGLE_CLOUD_PROJECT,
+# GEMINI_API_KEY, etc. live in one place. .env wins over the shell — corp
+# shells often have a stale GOOGLE_CLOUD_PROJECT export that would otherwise
+# silently route the Cloud Build source upload to the wrong _cloudbuild
+# bucket.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/../.env"
+if [[ -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+fi
+
+if [[ -z "${GOOGLE_CLOUD_PROJECT:-}" ]]; then
+  echo "ERROR: GOOGLE_CLOUD_PROJECT is not set. Define it in 02-scale/.env."
+  exit 1
+fi
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT}"
 REGION="${CLOUD_RUN_REGION:-us-central1}"
 SERVICE_NAME="${CONTROL_ROOM_SERVICE_NAME:-scale-control-room}"
 REPOSITORY="${ARTIFACT_REPOSITORY:-agent-showcase}"
@@ -40,15 +58,12 @@ UV_URL="https://oauth2accesstoken:${TOKEN}@us-python.pkg.dev/artifact-foundry-pr
 CONTROL_ROOM_AGENT_ENGINE_ID=$(python3 -c "import json; print(json.load(open('deployment_metadata.json')).get('control_room_agent_engine_id', ''))" 2>/dev/null || echo "")
 echo "Control Room Agent ID from metadata: ${CONTROL_ROOM_AGENT_ENGINE_ID}"
 
-# Read GEMINI_API_KEY from .env if not already set in the environment.
-# The Explainer Live API needs this; without it, the SDK falls back to Vertex
-# where gemini-3.1-flash-live-preview is not served. `--env-vars-file` below
+# GEMINI_API_KEY is sourced from .env above. The Explainer Live API needs
+# it; without it, the SDK falls back to Vertex where
+# gemini-3.1-flash-live-preview is not served. `--env-vars-file` below
 # REPLACES env vars on each deploy, so we must forward it explicitly every time.
-if [[ -z "${GEMINI_API_KEY:-}" && -f .env ]]; then
-  GEMINI_API_KEY=$(grep -E '^GEMINI_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
-fi
 if [[ -z "${GEMINI_API_KEY:-}" ]]; then
-  echo "WARNING: GEMINI_API_KEY not set (checked env and .env). Explainer Live API will fail."
+  echo "WARNING: GEMINI_API_KEY not set in 02-scale/.env. Explainer Live API will fail."
 fi
 
 gcloud builds submit \

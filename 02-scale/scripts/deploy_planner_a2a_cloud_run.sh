@@ -2,7 +2,23 @@
 
 set -euo pipefail
 
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-gcp-samples-ic0}"
+# Load demo config from 02-scale/.env. See deploy_control_room_cloud_run.sh
+# for the full rationale — short version: corp shells often have a stale
+# GOOGLE_CLOUD_PROJECT export that misroutes the Cloud Build source upload.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/../.env"
+if [[ -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+fi
+
+if [[ -z "${GOOGLE_CLOUD_PROJECT:-}" ]]; then
+  echo "ERROR: GOOGLE_CLOUD_PROJECT is not set. Define it in 02-scale/.env."
+  exit 1
+fi
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT}"
 REGION="${CLOUD_RUN_REGION:-us-central1}"
 SERVICE_NAME="${PLANNER_A2A_SERVICE_NAME:-scale-planner-a2a}"
 REPOSITORY="${ARTIFACT_REPOSITORY:-agent-showcase}"
