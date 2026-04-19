@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.35 - Live WS reconnect with backoff + mid-turn retry
-console.log('[DEBUG] Script v1.35 starting load...');
+// Scale Agents Dashboard Logic v1.36 - Live WS reconnect with backoff + mid-turn retry
+console.log('[DEBUG] Script v1.36 starting load...');
 
 // Global state
 let currentSessionId = 'demo_session_1';
@@ -718,6 +718,17 @@ function sealPendingExplainerChunk() {
     const chunk = pendingExplainerObservation;
     pendingExplainerObservation = null;
     pendingExplainerRole = null;
+
+    // Skip chunks whose only event is a single-line status — these are
+    // filler pushes ("Setting up...", "Connecting...") that don't carry
+    // enough signal to be worth a Live model call.
+    const events = chunk.current_events || [];
+    if (events.length === 1) {
+        const only = events[0] || {};
+        const body = only.report || only.text || '';
+        if (body && !body.includes('\n')) return;
+    }
+
     // Render the debug bubble *now* (the moment the chunk is sealed) so it's
     // visible immediately even if a prior Live model call is still in flight.
     // The actual dispatch is queued and stays serial because the WS session
@@ -726,7 +737,7 @@ function sealPendingExplainerChunk() {
     const debugBubble = createExplainerBubble('agent', 'debug');
     setBubbleContent(
         debugBubble,
-        '→ Live model (observe)\n' + JSON.stringify(chunk.current_events || [], null, 2),
+        '→ Live model (observe)\n' + JSON.stringify(events, null, 2),
         false
     );
     explainerChunkQueue.push(livePayload);
