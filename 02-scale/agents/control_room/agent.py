@@ -18,33 +18,27 @@ dashboard_queue = asyncio.Queue()
 
 
 async def emit_status(name: str, text: str, role: str = "control_room"):
-    # Local queue for in-process dashboard (if running locally)
-    await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
-
-    # Remote push for Agent Engine deployment
+    # XOR: HTTP when CONTROL_ROOM_STATUS_URL is set (AE or cross-process),
+    # in-process queue otherwise. Doing both duplicates every status event
+    # when the dashboard runs in-process with the URL set for sibling
+    # processes (e.g. the Planner A2A bridge).
     if CONTROL_ROOM_STATUS_URL:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(CONTROL_ROOM_STATUS_URL, data={"name": name, "text": text, "role": role})
         except Exception as e:
             print(f"[Control Room] Failed to push status to {CONTROL_ROOM_STATUS_URL}: {e}")
+    else:
+        await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
 
 
 async def emit_final_report(status: str, report: str):
     """Push the final procurement report to the dashboard.
 
-    The local runner path surfaces the orchestrator's return dict via
-    ``event.output`` and the UI renders it as a "result" bubble. When the
-    Control Room runs on Agent Engine, ``async_stream_query`` does not expose
-    that return value, so the side-channel must push it explicitly.
+    Canonical source for the result bubble. Uses HTTP when
+    CONTROL_ROOM_STATUS_URL is set (the only path that works on Agent
+    Engine); otherwise pushes directly to the in-process queue.
     """
-    payload = {
-        "type": "adk_event",
-        "event_type": "WorkflowComplete",
-        "node_name": "control_room_orchestrator",
-        "output": {"status": status, "report": report},
-    }
-    await dashboard_queue.put(payload)
     if CONTROL_ROOM_STATUS_URL:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -56,6 +50,13 @@ async def emit_final_report(status: str, report: str):
                 )
         except Exception as e:
             print(f"[Control Room] Failed to push final report to {CONTROL_ROOM_STATUS_URL}: {e}")
+    else:
+        await dashboard_queue.put({
+            "type": "adk_event",
+            "event_type": "WorkflowComplete",
+            "node_name": "control_room_orchestrator",
+            "output": {"status": status, "report": report},
+        })
 
 
 def _classify_report(report: str) -> tuple[bool, bool]:

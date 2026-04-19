@@ -565,6 +565,22 @@ input[type="text"]:focus {
     border-left: 3px solid #ef4444;
 }
 
+.explainer-message.debug {
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
+    flex: 0 0 auto;
+    border-left: 3px solid #94a3b8;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.7rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+}
+
 .explainer-message p {
     margin-bottom: 0.5rem;
 }

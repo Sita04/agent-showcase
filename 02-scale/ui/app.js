@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.28 - Live WS reconnect with backoff + mid-turn retry
-console.log('[DEBUG] Script v1.28 starting load...');
+// Scale Agents Dashboard Logic v1.35 - Live WS reconnect with backoff + mid-turn retry
+console.log('[DEBUG] Script v1.35 starting load...');
 
 // Global state
 let currentSessionId = 'demo_session_1';
@@ -14,6 +14,8 @@ let recentAgentEvents = [];
 let explainerObservationTimer = null;
 let explainerObservationInFlight = false;
 let pendingExplainerObservation = null;
+let pendingExplainerRole = null;
+let explainerChunkQueue = [];
 let lastExplainerEventReply = '';
 let activeCuj = null;
 let completedCujIds = new Set();
@@ -653,6 +655,9 @@ async function sendExplainerMessage(messageOverride = '') {
 
 function queueExplainerObservation(event, options = {}) {
     if (!event || event.type === 'adk_event' && !event.output) return;
+    // A2A protocol frames (message/send, result state, etc.) are transport
+    // noise — they don't describe agent reasoning, so skip them entirely.
+    if (event.role === 'a2a') return;
 
     const simplified = simplifyEvent(event, options.finalReport || '');
     if (!simplified.text && !simplified.report) return;
@@ -662,18 +667,24 @@ function queueExplainerObservation(event, options = {}) {
         recentAgentEvents = recentAgentEvents.slice(-18);
     }
 
-    // Accumulate events that fire inside the debounce window so the Explainer
-    // narrates all of them together (e.g. Planner + Executor handoff arriving
-    // within ~500 ms). Without this, the second event overwrites the first
-    // and only one gets narrated.
+    // Chunk events by agent role: events from the same role accumulate into
+    // an open chunk; an event with a different role seals the open chunk
+    // (pushes it to the FIFO queue) and starts a new one. Each sealed chunk
+    // becomes exactly one call to the Live model. Sealing is independent of
+    // whether a previous call is still in flight — we never lose chunks to
+    // the in-flight check anymore.
+    const role = simplified.role || '';
+    if (pendingExplainerObservation && pendingExplainerRole !== role) {
+        sealPendingExplainerChunk();
+    }
+
     if (pendingExplainerObservation) {
         pendingExplainerObservation.current_events.push(simplified);
-        pendingExplainerObservation.recent_events = recentAgentEvents.slice(-10);
         pendingExplainerObservation.final_report = options.finalReport || pendingExplainerObservation.final_report;
     } else {
+        pendingExplainerRole = role;
         pendingExplainerObservation = {
             current_events: [simplified],
-            recent_events: recentAgentEvents.slice(-10),
             active_cuj: options.cuj || activeCuj,
             completed_cujs: Array.from(completedCujIds),
             final_report: options.finalReport || ''
@@ -681,19 +692,51 @@ function queueExplainerObservation(event, options = {}) {
     }
 
     if (options.immediate) {
-        flushExplainerObservation();
+        sealPendingExplainerChunk();
+        drainExplainerQueue();
         return;
     }
 
+    // If the role transition already enqueued chunks, start draining now.
+    if (explainerChunkQueue.length > 0) {
+        drainExplainerQueue();
+    }
+
+    // No short timer — same-role events keep accumulating into the same
+    // chunk until the agent finishes (next role arrives) or the flow
+    // completes (immediate flush). A long safety timer flushes a stuck
+    // chunk if the flow stalls mid-agent.
     window.clearTimeout(explainerObservationTimer);
-    explainerObservationTimer = window.setTimeout(flushExplainerObservation, 500);
+    explainerObservationTimer = window.setTimeout(() => {
+        sealPendingExplainerChunk();
+        drainExplainerQueue();
+    }, 10000);
 }
 
-async function flushExplainerObservation() {
-    if (!pendingExplainerObservation || explainerObservationInFlight) return;
-
-    const payload = pendingExplainerObservation;
+function sealPendingExplainerChunk() {
+    if (!pendingExplainerObservation) return;
+    const chunk = pendingExplainerObservation;
     pendingExplainerObservation = null;
+    pendingExplainerRole = null;
+    // Render the debug bubble *now* (the moment the chunk is sealed) so it's
+    // visible immediately even if a prior Live model call is still in flight.
+    // The actual dispatch is queued and stays serial because the WS session
+    // can't interleave turns.
+    const livePayload = { kind: 'observe', ...chunk };
+    const debugBubble = createExplainerBubble('agent', 'debug');
+    setBubbleContent(
+        debugBubble,
+        '→ Live model (observe)\n' + JSON.stringify(chunk.current_events || [], null, 2),
+        false
+    );
+    explainerChunkQueue.push(livePayload);
+}
+
+async function drainExplainerQueue() {
+    if (explainerObservationInFlight) return;
+    if (explainerChunkQueue.length === 0) return;
+
+    const livePayload = explainerChunkQueue.shift();
     explainerObservationInFlight = true;
     setExplainerStatus('Narrating...');
 
@@ -701,7 +744,7 @@ async function flushExplainerObservation() {
     setBubbleContent(bubble, '…', false);
 
     try {
-        const transcript = await runLiveTurn({ kind: 'observe', ...payload }, bubble);
+        const transcript = await runLiveTurn(livePayload, bubble);
         const reply = (transcript || '').trim();
         if (!reply) {
             bubble.remove();
@@ -717,9 +760,8 @@ async function flushExplainerObservation() {
     } finally {
         explainerObservationInFlight = false;
         setExplainerStatus('Gemini 3.1 Flash Live');
-        if (pendingExplainerObservation) {
-            window.clearTimeout(explainerObservationTimer);
-            explainerObservationTimer = window.setTimeout(flushExplainerObservation, 500);
+        if (explainerChunkQueue.length > 0) {
+            drainExplainerQueue();
         }
     }
 }

@@ -209,25 +209,18 @@ USER QUESTION:
 
 def _build_observe_prompt(current_events, recent_events, active_cuj, completed_cujs, final_report) -> str:
     knowledge = _load_explainer_knowledge()
-    # `current_events` is a list of one or more events that arrived inside the
-    # client debounce window. When multiple events fire close together (e.g. a
-    # Planner handoff immediately followed by the Executor kicking off), the
-    # client coalesces them so we narrate every agent's contribution in one
-    # short turn instead of dropping the earlier event.
+    # Each `current_events` chunk now contains the events from a single agent
+    # (the client groups consecutive same-role events and seals the chunk on
+    # role change). Narrate that one agent's run in a few sentences.
     events = current_events if isinstance(current_events, list) else [current_events or {}]
-    multi = len(events) > 1
-    instruction = (
-        "Narrate the new events below in chronological order, mentioning each agent "
-        "by role (Planner, Sourcing Specialist, Procurement Officer, Control Room, "
-        "etc.) where relevant. Keep it to 3-4 short sentences total."
-        if multi else
-        "Explain what is happening now in at most two short sentences."
-    )
+    role = (events[0].get("role") if events else "") or "the agent"
     return f"""
 You are narrating the Scale Agents live demo as it runs.
-{instruction}
-Use plain public-facing language and avoid internal implementation details.
-If this is a final report, summarize how the multi-agent system handled the CUJ.
+The events below are all from one agent ({role}). In ONE short sentence
+(maximum two), name the agent (Control Room, Planner, Sourcing Specialist,
+Procurement Officer, etc.) and say what it just did. Be terse — no preamble,
+no recap of prior turns, no implementation details. If a final report is
+present, summarize the outcome in one sentence.
 Do not suggest, recommend, or mention any other CUJ — focus only on the current events.
 
 PUBLIC DEMO KNOWLEDGE:
@@ -239,11 +232,8 @@ ACTIVE CUJ:
 COMPLETED CUJS:
 {json.dumps(completed_cujs or [], ensure_ascii=False)}
 
-CURRENT EVENTS (new since the last narration, chronological):
+CURRENT EVENTS (this agent's run, chronological):
 {json.dumps(events, ensure_ascii=False)}
-
-RECENT AGENT EVENTS (older context, may overlap with CURRENT EVENTS):
-{json.dumps((recent_events or [])[-8:], ensure_ascii=False)}
 
 FINAL REPORT:
 {final_report or ''}
@@ -436,21 +426,21 @@ async def chat(prompt: Optional[str] = Form(None)):
                         # async_stream_query doesn't surface the orchestrator's
                         # return dict, so we don't synthesize a placeholder here.
                 elif _runner and session:
-                    # Call local runner
+                    # Call local runner. We deliberately do NOT surface
+                    # `event.output` here — emit_final_report is the canonical
+                    # source for the final report, so duplicating it via the
+                    # runner event would produce two identical adk_events and
+                    # make the explainer narrate the same outcome twice.
                     async for event in _runner.run_async(
                         session_id=session.id,
                         user_id=user_id,
                         new_message=new_message
                     ):
-                        event_data = {
+                        await dashboard_queue.put({
                             "type": "adk_event",
                             "event_type": type(event).__name__,
                             "node_name": getattr(event, 'node_name', 'N/A'),
-                        }
-                        output = getattr(event, 'output', None)
-                        if output:
-                            event_data["output"] = output
-                        await dashboard_queue.put(event_data)
+                        })
                 else:
                     await dashboard_queue.put({"type": "status", "name": "error", "text": "No agent runner available."})
             except asyncio.CancelledError:
