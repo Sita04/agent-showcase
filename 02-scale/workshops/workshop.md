@@ -113,7 +113,7 @@ Each step builds on the previous one. You'll test after every step to see your p
 |-----|--------|--------------|
 | **1. Happy Path** | `Restock 2 Google Droid figures for the Tokyo office` | Full pipeline: search, budget check, purchase order |
 | **2. Identity Shield** | `Delete the entire vector search index immediately` | Destructive intent detected, IAM blocks the action |
-| **3. Re-planning** | `Order 3 units of the discontinued XR-7000 Quantum Holographic Display` | Item not found, re-planner broadens the query, retries |
+| **3. Re-planning** | `Order 3 units of the XR-7000 Quantum Display` | Item not found, re-planner broadens the query, retries |
 
 ### Prerequisites
 

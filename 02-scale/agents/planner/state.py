@@ -46,3 +46,7 @@ class PlanState(TypedDict, total=False):
     # CUJ 2: Identity Shield fields
     malicious_intent: Optional[bool]   # Whether the request was classified as destructive
     security_violation: Optional[str]  # IAM rejection details if a forbidden action was attempted
+
+    # CUJ 3: Re-planning fields
+    replan_attempts: Optional[int]     # Number of times the Re-Planner has broadened the query
+    original_item_description: Optional[str]  # First item_description before any broadening

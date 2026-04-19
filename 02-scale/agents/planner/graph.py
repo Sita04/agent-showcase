@@ -320,6 +320,65 @@ class PlannerNodes:
                 "execution_result": f"Error: {str(e)}"
             }
 
+    async def replan(self, state: PlanState) -> PlanState:
+        """CUJ 3 Node: Broaden the item description after a retryable failure
+        from the Execution Crew (e.g. NO_MATCH).
+
+        Only fires when the prior delegation failed in a retryable way and we
+        have not already replanned. The Re-Planner is intentionally separate
+        from the Sourcing Specialist's own search: the Specialist reports
+        honestly when it cannot find a close match; this node decides whether
+        to relax the query and try again.
+        """
+        logger.info("--- [Planner] Re-Planner: Broadening the request ---")
+        _push_to_dashboard(
+            "Re-Planner: broadening the request and retrying...",
+            "replanning",
+            role="replanning",
+        )
+        if self.on_update:
+            await self.on_update("Re-Planner: broadening the request and retrying...")
+
+        original = state.get("original_item_description") or state.get("item_description") or ""
+        prior_result = state.get("execution_result") or ""
+
+        broaden_prompt = (
+            "You are the Re-Planner for a retail procurement workflow.\n"
+            "The Sourcing Specialist could not find a close match for the\n"
+            f"original item description: '{original}'.\n\n"
+            f"Their report:\n{prior_result}\n\n"
+            "Rewrite the item description into a SHORTER, more generic query\n"
+            "that drops brand-specific or model-number tokens but preserves\n"
+            "the product category. Examples:\n"
+            "  'XR-7000 Quantum Display' -> 'display screen'\n"
+            "  'Acme HyperWidget 9000 X' -> 'widget'\n"
+            "Respond with ONLY the rewritten item description, no quotes,\n"
+            "no preamble."
+        )
+
+        response = await asyncio.to_thread(self.llm.invoke, broaden_prompt)
+        broadened = str(response.content).strip().strip('"').strip("'")
+        if not broadened:
+            broadened = original
+
+        logger.info(f"Re-Planner broadened '{original}' -> '{broadened}'")
+        _push_to_dashboard(
+            f"Re-Planner broadened the query: **{original}** -> **{broadened}**",
+            "replanning",
+            role="replanning",
+        )
+        if self.on_update:
+            await self.on_update(f"Re-Planner broadened the query: {original} -> {broadened}")
+
+        return {
+            "item_description": broadened,
+            "original_item_description": original,
+            "replan_attempts": (state.get("replan_attempts") or 0) + 1,
+            "delegation_status": "pending",
+            "execution_result": None,
+            "current_step": "replanned",
+        }
+
     async def attempt_forbidden_action(self, state: PlanState) -> PlanState:
         """CUJ 2 Node: Attempt a forbidden vector store operation."""
         logger.info("--- [Planner] SECURITY: Attempting forbidden action (delete_index) ---")
@@ -425,6 +484,53 @@ def route_after_analysis(state: PlanState) -> str:
     return "delegate"
 
 
+# Substrings in execution_result that indicate a retryable failure the
+# Re-Planner can address by broadening the query. Over-budget / poor-match
+# constraints are NOT retryable -- broadening would not help.
+_RETRYABLE_FAILURE_MARKERS = (
+    "NO_MATCH",
+    "no match",
+    "no good matches",
+    "could not find",
+    "not found",
+    "no inventory",
+    "no items found",
+)
+
+_TERMINAL_FAILURE_MARKERS = (
+    "OVER_BUDGET",
+    "over budget",
+    "permission denied",
+    "IAM",
+)
+
+_MAX_REPLAN_ATTEMPTS = 1
+
+
+def route_after_delegate(state: PlanState) -> str:
+    """CUJ 3: Decide whether to replan-and-retry, or finalize the report.
+
+    Replan when the prior execution failed in a way broadening could fix
+    (no-match / not-found) AND we have replan budget left. Terminal
+    failures (over-budget, IAM) and successes go straight to the report.
+    """
+    if (state.get("replan_attempts") or 0) >= _MAX_REPLAN_ATTEMPTS:
+        return "generate_report"
+
+    result = (state.get("execution_result") or "").lower()
+    status = (state.get("delegation_status") or "").lower()
+
+    if any(marker.lower() in result for marker in _TERMINAL_FAILURE_MARKERS):
+        return "generate_report"
+
+    failed = status == "failed" or any(
+        marker.lower() in result for marker in _RETRYABLE_FAILURE_MARKERS
+    )
+    if failed:
+        return "replan"
+    return "generate_report"
+
+
 # Graph Construction
 def build_planner_graph(crew_engine=None, on_update=None):
     nodes = PlannerNodes(crew_engine=crew_engine, on_update=on_update)
@@ -433,6 +539,7 @@ def build_planner_graph(crew_engine=None, on_update=None):
     # Add Nodes
     workflow.add_node("analyze_alert", nodes.analyze_alert)
     workflow.add_node("delegate", nodes.delegate_to_executor)
+    workflow.add_node("replan", nodes.replan)
     workflow.add_node("generate_report", nodes.generate_report)
     workflow.add_node("attempt_forbidden_action", nodes.attempt_forbidden_action)
     workflow.add_node("generate_security_report", nodes.generate_security_report)
@@ -448,8 +555,16 @@ def build_planner_graph(crew_engine=None, on_update=None):
         },
     )
 
-    # Normal path (CUJ 1 / CUJ 3)
-    workflow.add_edge("delegate", "generate_report")
+    # Normal path (CUJ 1) + Re-Planner branch (CUJ 3)
+    workflow.add_conditional_edges(
+        "delegate",
+        route_after_delegate,
+        {
+            "replan": "replan",
+            "generate_report": "generate_report",
+        },
+    )
+    workflow.add_edge("replan", "delegate")
     workflow.add_edge("generate_report", END)
 
     # Security path (CUJ 2)

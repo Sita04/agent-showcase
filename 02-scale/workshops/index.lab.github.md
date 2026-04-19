@@ -802,12 +802,12 @@ Try modifying the `prompt` string in `control_room.py` to experiment with these 
 | CUJ | Prompt | What Happens |
 |-----|--------|--------------|
 | **1. Happy Path** | `Restock 1 Pixel 7 phones for the Tokyo office` | Search -> budget check -> purchase order (SUCCESS). Works end-to-end. |
-| **2. Re-planning** | `Order 1 unit of the discontinued XR-7000 Quantum Holographic Display` | The planner returns "Failed: Unknown item". The Control Room detects this and invokes an `LlmAgent` re-planner to broaden the search. Both attempts fail (the hardcoded planner only recognizes "Pixel 7"), but you will see the full re-planning **mechanism** in action. |
+| **2. Re-planning** | `Order 1 unit of the XR-7000 Quantum Display` | The planner returns "Failed: Unknown item". The Control Room detects this and invokes an `LlmAgent` re-planner to broaden the search. Both attempts fail (the hardcoded planner only recognizes "Pixel 7"), but you will see the full re-planning **mechanism** in action. |
 
 To test **CUJ 2 (Re-planning)**, change the `prompt` in `control_room.py` to:
 
 ```python
-prompt = "Order 1 unit of the discontinued XR-7000 Quantum Holographic Display"
+prompt = "Order 1 unit of the XR-7000 Quantum Display"
 ```
 
 The hardcoded planner won't recognize this item and will return "Failed: Unknown item". The Control Room will detect the failure, dynamically create an `LlmAgent` re-planner, and retry with a broader objective. Because the planner only recognizes "Pixel 7", the retry will also fail -- but you will see the full re-planning loop in action. The final output will be `FAILED after 2 attempts: ...`.

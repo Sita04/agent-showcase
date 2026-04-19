@@ -52,7 +52,7 @@ const CUJS = [
         id: '3',
         tag: 'CUJ 3',
         title: 'Re-planning',
-        prompt: 'Order 3 units of the discontinued XR-7000 Quantum Holographic Display',
+        prompt: 'Order 3 units of the XR-7000 Quantum Display',
         summary: 'A failed request is classified and retried with broader planning.'
     }
 ];

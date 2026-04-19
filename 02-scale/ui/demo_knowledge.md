@@ -78,7 +78,7 @@ Identity and least-privilege permissions provide an enforcement layer.
 
 ## CUJ 3: Re-Planning
 
-Prompt: "Order 3 units of the discontinued XR-7000 Quantum Holographic Display"
+Prompt: "Order 3 units of the XR-7000 Quantum Display"
 
 Expected flow:
 
