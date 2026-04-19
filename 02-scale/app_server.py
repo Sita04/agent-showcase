@@ -207,14 +207,28 @@ USER QUESTION:
 """.strip()
 
 
-def _build_observe_prompt(current_event, recent_events, active_cuj, completed_cujs, final_report) -> str:
+def _build_observe_prompt(current_events, recent_events, active_cuj, completed_cujs, final_report) -> str:
     knowledge = _load_explainer_knowledge()
+    # `current_events` is a list of one or more events that arrived inside the
+    # client debounce window. When multiple events fire close together (e.g. a
+    # Planner handoff immediately followed by the Executor kicking off), the
+    # client coalesces them so we narrate every agent's contribution in one
+    # short turn instead of dropping the earlier event.
+    events = current_events if isinstance(current_events, list) else [current_events or {}]
+    multi = len(events) > 1
+    instruction = (
+        "Narrate the new events below in chronological order, mentioning each agent "
+        "by role (Planner, Sourcing Specialist, Procurement Officer, Control Room, "
+        "etc.) where relevant. Keep it to 3-4 short sentences total."
+        if multi else
+        "Explain what is happening now in at most two short sentences."
+    )
     return f"""
 You are narrating the Scale Agents live demo as it runs.
-Explain what is happening now in at most two short sentences.
+{instruction}
 Use plain public-facing language and avoid internal implementation details.
 If this is a final report, summarize how the multi-agent system handled the CUJ.
-Do not suggest, recommend, or mention any other CUJ — focus only on the current event.
+Do not suggest, recommend, or mention any other CUJ — focus only on the current events.
 
 PUBLIC DEMO KNOWLEDGE:
 {knowledge}
@@ -225,10 +239,10 @@ ACTIVE CUJ:
 COMPLETED CUJS:
 {json.dumps(completed_cujs or [], ensure_ascii=False)}
 
-CURRENT EVENT:
-{json.dumps(current_event or {}, ensure_ascii=False)}
+CURRENT EVENTS (new since the last narration, chronological):
+{json.dumps(events, ensure_ascii=False)}
 
-RECENT AGENT EVENTS:
+RECENT AGENT EVENTS (older context, may overlap with CURRENT EVENTS):
 {json.dumps((recent_events or [])[-8:], ensure_ascii=False)}
 
 FINAL REPORT:
@@ -286,8 +300,14 @@ async def explainer_live(ws: WebSocket):
                     payload.get("state", {}),
                 )
             elif kind == "observe":
+                # Prefer `current_events` (plural, debounce-window batch) but
+                # accept `current_event` (singular) for any older client.
+                events = payload.get("current_events")
+                if events is None:
+                    single = payload.get("current_event")
+                    events = [single] if single else []
                 prompt = _build_observe_prompt(
-                    payload.get("current_event", {}),
+                    events,
                     payload.get("recent_events", []),
                     payload.get("active_cuj"),
                     payload.get("completed_cujs", []),

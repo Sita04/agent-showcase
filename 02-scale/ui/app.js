@@ -662,13 +662,23 @@ function queueExplainerObservation(event, options = {}) {
         recentAgentEvents = recentAgentEvents.slice(-18);
     }
 
-    pendingExplainerObservation = {
-        current_event: simplified,
-        recent_events: recentAgentEvents.slice(-10),
-        active_cuj: options.cuj || activeCuj,
-        completed_cujs: Array.from(completedCujIds),
-        final_report: options.finalReport || ''
-    };
+    // Accumulate events that fire inside the debounce window so the Explainer
+    // narrates all of them together (e.g. Planner + Executor handoff arriving
+    // within ~500 ms). Without this, the second event overwrites the first
+    // and only one gets narrated.
+    if (pendingExplainerObservation) {
+        pendingExplainerObservation.current_events.push(simplified);
+        pendingExplainerObservation.recent_events = recentAgentEvents.slice(-10);
+        pendingExplainerObservation.final_report = options.finalReport || pendingExplainerObservation.final_report;
+    } else {
+        pendingExplainerObservation = {
+            current_events: [simplified],
+            recent_events: recentAgentEvents.slice(-10),
+            active_cuj: options.cuj || activeCuj,
+            completed_cujs: Array.from(completedCujIds),
+            final_report: options.finalReport || ''
+        };
+    }
 
     if (options.immediate) {
         flushExplainerObservation();
@@ -676,7 +686,7 @@ function queueExplainerObservation(event, options = {}) {
     }
 
     window.clearTimeout(explainerObservationTimer);
-    explainerObservationTimer = window.setTimeout(flushExplainerObservation, 1600);
+    explainerObservationTimer = window.setTimeout(flushExplainerObservation, 500);
 }
 
 async function flushExplainerObservation() {
@@ -709,7 +719,7 @@ async function flushExplainerObservation() {
         setExplainerStatus('Gemini 3.1 Flash Live');
         if (pendingExplainerObservation) {
             window.clearTimeout(explainerObservationTimer);
-            explainerObservationTimer = window.setTimeout(flushExplainerObservation, 900);
+            explainerObservationTimer = window.setTimeout(flushExplainerObservation, 500);
         }
     }
 }
