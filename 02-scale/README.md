@@ -324,16 +324,17 @@ The agent will:
 
 ## Deployment
 
-The full demo runs across **four** managed services:
+The full demo runs across **five** managed services:
 
 | Service | Runtime | Identity |
 | ------- | ------- | -------- |
 | **Execution Crew** (CrewAI) | Agent Engine | `execution-agent-sa` |
 | **Planning Agent** (LangGraph) | Agent Engine | `planning-agent-sa` |
+| **Control Room Workflow** (ADK 2.0) | Agent Engine | `execution-agent-sa` |
 | **Planner A2A bridge** | Cloud Run | `planning-agent-sa` |
-| **Control Room Dashboard** (ADK 2.0 Workflow + UI) | Cloud Run | `control-room-sa` |
+| **Control Room Dashboard** (UI) | Cloud Run | `control-room-sa` |
 
-The Planner A2A bridge wraps the Agent-Engine planner so the Control Room can talk to it via standard A2A JSON-RPC. The Dashboard is the user-facing entry point and can either run the ADK Control Room Workflow in-process or invoke an Agent-Engine-hosted Control Room (via `CONTROL_ROOM_AGENT_ENGINE_ID`).
+The Planner A2A bridge wraps the Agent-Engine planner so the Control Room can talk to it via standard A2A JSON-RPC. The Dashboard is the user-facing entry point — it owns SSE / the Explainer Live API socket / static assets and delegates the ADK Control Room Workflow to its Agent-Engine instance via `CONTROL_ROOM_AGENT_ENGINE_ID`. Setting `CONTROL_ROOM_AGENT_ENGINE_ID=local` runs the Workflow in-process inside the Dashboard container instead — this is the **local development fallback**, not the production path.
 
 Key Cloud Run knobs:
 * `--concurrency 10` -- required so `/api/push_status` callbacks and the SSE stream share the same instance
@@ -343,6 +344,8 @@ Key Cloud Run knobs:
 ### End-to-End Deploy Order
 
 There is a chicken-and-egg dependency: the Planner A2A bridge needs the Dashboard URL (for status push-back), and the Dashboard needs the Planner A2A URL (for delegation). Resolve it by deploying the Dashboard with a known service name, computing its URL up front, then patching the Planner A2A's status URL in a second pass.
+
+The Control Room Workflow is deployed to Agent Engine alongside the Planner and Crew (step 3). The Dashboard then invokes it remotely via `CONTROL_ROOM_AGENT_ENGINE_ID`. For local development you can skip step 3 and set `CONTROL_ROOM_AGENT_ENGINE_ID=local` on the Dashboard to run the Workflow in-process — see [Local Development](#local-development) below.
 
 ```bash
 # 0. Authenticate. The internal Python registry (artifact-foundry-prod)
@@ -389,7 +392,15 @@ CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" \
 CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" \
   uv run scripts/deploy_to_agent_engine.py --planning-only
 
-# 3. Deploy the Planner A2A bridge on Cloud Run (run from the 02-scale dir).
+# 3. Deploy the Control Room Workflow to Agent Engine.
+#    Bound to execution-agent-sa. Needs PLANNER_AGENT_URL (the eventual
+#    Cloud Run service for the bridge) and CONTROL_ROOM_STATUS_URL so the
+#    workflow can push status to the Dashboard.
+PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.app/" \
+  CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" \
+  uv run scripts/deploy_to_agent_engine.py --control-room-only
+
+# 4. Deploy the Planner A2A bridge on Cloud Run (run from the 02-scale dir).
 #    PLANNING_AGENT_ENGINE_ID is auto-saved to deployment_metadata.json by
 #    step 2 — read it from there. CONTROL_ROOM_URL lets the bridge proxy
 #    status updates from the Agent-Engine planner to the Dashboard.
@@ -400,15 +411,18 @@ PLANNING_AGENT_ENGINE_ID="${PLANNING_AGENT_ENGINE_ID}" \
   CONTROL_ROOM_URL="${DASHBOARD_URL}" \
   bash scripts/deploy_planner_a2a_cloud_run.sh
 
-# 4. Deploy the Control Room Dashboard on Cloud Run.
-#    Use the URL printed by step 3 as PLANNER_AGENT_URL.
+# 5. Deploy the Control Room Dashboard on Cloud Run.
+#    PLANNER_AGENT_URL points at the bridge from step 4. CONTROL_ROOM_AGENT_ENGINE_ID
+#    is read from deployment_metadata.json by deploy_control_room_cloud_run.sh and
+#    forwarded into the Cloud Run env vars so the Dashboard invokes the AE-hosted
+#    Workflow from step 3 instead of running it in-process.
 PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.app/" \
   bash scripts/deploy_control_room_cloud_run.sh
 ```
 
-> **If you redeploy the Dashboard later**, re-run step 3's `gcloud run services update scale-planner-a2a --update-env-vars CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status"` so the planner bridge keeps pushing status to the right host. Without it, the dashboard renders only Control Room + A2A bubbles — Planner / Executor bubbles silently drop.
+> **If you redeploy the Dashboard later**, re-run step 4's `gcloud run services update scale-planner-a2a --update-env-vars CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status"` so the planner bridge keeps pushing status to the right host. Without it, the dashboard renders only Control Room + A2A bubbles — Planner / Executor bubbles silently drop.
 
-> **Optional Phase 2: Control Room on Agent Engine.** The Dashboard can offload the ADK Workflow to a remote Agent Engine instance (so multiple replicas share one orchestrator). ADK 2.0.0a3 supports `Workflow` source deployment to Agent Engine. Deploy with `uv run scripts/deploy_to_agent_engine.py --control-room-only` (passing `PLANNER_AGENT_URL` and `CONTROL_ROOM_STATUS_URL`), then `gcloud run services update scale-control-room --update-env-vars CONTROL_ROOM_AGENT_ENGINE_ID=projects/.../reasoningEngines/...`. The Dashboard already has both code paths gated by that env var (in-process when unset/`local`, remote AE when set to a `reasoningEngines/...` resource name) -- no Dashboard code change needed.
+> **Local-only fallback: in-process Control Room.** Skip step 3 and start the Dashboard with `CONTROL_ROOM_AGENT_ENGINE_ID=local` to run the ADK Workflow inside the Dashboard process. This avoids the AE cold-start during dev iteration. The Dashboard has both code paths gated by that env var: `local` / unset → in-process; a `projects/.../reasoningEngines/...` resource name → remote AE. Production should always use the AE path so multiple Dashboard replicas share one orchestrator and per-replica memory stays small.
 
 Deployment assets: `Dockerfile.planner-a2a`, `Dockerfile.control-room`, `cloudbuild-*.yaml`, `scripts/deploy_*_cloud_run.sh`, `scripts/deploy_to_agent_engine.py`.
 
@@ -443,7 +457,7 @@ Verify the new revision is live by checking the version stamp in the served HTML
 | ------- | ------------ | ----- |
 | `PLANNER_AGENT_URL` | All workflows | Set automatically by `deploy_control_room_cloud_run.sh` from the script-time value. |
 | `GEMINI_API_KEY` | Explainer (Live API) | The `gemini-3.1-flash-live-preview` model is only served by the Google AI API, not Vertex AI. Without this, the Explainer widget renders but every Live API call closes with WebSocket code `1008` ("Publisher Model … not found"). The deploy script forwards this from the local `.env` automatically; get a key at https://aistudio.google.com/apikey if you don't have one. |
-| `CONTROL_ROOM_AGENT_ENGINE_ID` | Optional | When set to a `projects/.../reasoningEngines/...` resource name, the Dashboard invokes the Control Room on Agent Engine instead of running it in-process. Leave unset (or set to `local`) to run in-process. |
+| `CONTROL_ROOM_AGENT_ENGINE_ID` | All workflows | Production value is the `projects/.../reasoningEngines/...` resource name from step 3 — the Dashboard invokes that AE-hosted Workflow instead of running it in-process. `deploy_control_room_cloud_run.sh` reads this from `deployment_metadata.json` and forwards it automatically, so a normal `--control-room-only` deploy followed by a Dashboard redeploy keeps it in sync. Set to `local` only for in-process local dev. |
 
 > **Note:** the deploy script writes the env-vars file using `--env-vars-file`, which **replaces** all env vars on each deploy. Anything set via `gcloud run services update --update-env-vars …` will be wiped on the next redeploy — bake new vars into `deploy_control_room_cloud_run.sh` (or `.env` for `GEMINI_API_KEY`) instead.
 
@@ -536,9 +550,9 @@ Three service accounts enforce least-privilege boundaries:
 
 | Service Account | Role | Purpose |
 | --------------- | ---- | ------- |
-| `planning-agent-sa` | Custom `planningAgentRuntime` (Gemini + Agent Engine delegation only) | Planning Agent -- **no** vector store or index permissions |
-| `execution-agent-sa` | `aiplatform.user` + `aiplatform.editor` + `serviceusage.serviceUsageConsumer` | Execution Crew -- full data access |
-| `control-room-sa` | Custom `planningAgentRuntime` | Cloud Run-hosted ADK 2.0 Workflow |
+| `planning-agent-sa` | Custom `planningAgentRuntime` (Gemini + Agent Engine delegation only) | Planning Agent (Agent Engine) and Planner A2A bridge (Cloud Run) -- **no** vector store or index permissions |
+| `execution-agent-sa` | `aiplatform.user` + `aiplatform.editor` + `serviceusage.serviceUsageConsumer` | Execution Crew **and** Control Room Workflow on Agent Engine -- full data access plus permission to invoke the Planner via `reasoningEngines.query` |
+| `control-room-sa` | Custom `planningAgentRuntime` | Cloud Run Dashboard runtime — needs `reasoningEngines.query` to invoke the AE-hosted Control Room Workflow |
 
 The `planningAgentRuntime` custom role includes only: `aiplatform.endpoints.predict`, `aiplatform.locations.{get,list}`, `aiplatform.reasoningEngines.{get,query}`, `resourcemanager.projects.get`.
 
@@ -672,13 +686,6 @@ Demonstrate the "Identity Shield": a malicious prompt attempts to trick the Plan
 5. **Live Agent Engine probe (2026-04-09)**: Destructive prompt returns a live security report stating `aiplatform.indexes.delete` is missing.
 6. **Live Cloud Run E2E probe (2026-04-09)**: Destructive prompt works end to end through Cloud Run -> planner bridge -> Agent Engine planner.
 
-#### CUJ 2 Open Items
-
-* [ ] Exact `20`-mug live demo prompt -- currently fails mock budget policy as `Over Budget`
-* [ ] Deploy Control Room to Agent Engine (Phase 2 in the deploy sequence) -- ADK 2.0.0a3 supports `Workflow` source deployment via `scripts/deploy_to_agent_engine.py --control-room-only`; BYOC still blocked by container policy error
-* [ ] Re-deploy planner Agent Engine with `CONTROL_ROOM_STATUS_URL` set so per-step Executor (CrewAI) bubbles surface in the dashboard
-* [ ] IAM deny policy (optional extra guardrail; current user lacks `iam.denypolicies.create`)
-
 ### Architecture Gap Analysis
 
 Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the current implementation.
@@ -689,7 +696,7 @@ Comparing the [architecture diagram](./assets/scale-arch-diagram.png) to the cur
 | **External Systems** | ERP, CRM integrations on both sides | None | No ERP/CRM connectors |
 | **Agent Identity** | Centralized access control, instance-level permissions (ISTIO) | Planning Agent and Execution Crew both run under their intended service accounts | Full stack is split across Cloud Run + Agent Engine |
 | **Session Management** | Enhanced session management | Deployed Control Room uses **Agent Engine's managed Session Service** (via `AdkApp` default + `VertexAiSessionService`); local dev fallback uses `InMemorySessionService` | Cross-framework session sharing (LangGraph ↔ ADK ↔ CrewAI) still pending — see Q2 "Framework-agnostic session support" below |
-| **Agent Engine** | Core Runtime hosting both layers | Planning Agent + Execution Crew + Control Room Agent on Agent Engine; Dashboard on Cloud Run | Closed -- Control Room ADK Workflow now runs on Agent Engine via 2.0a3 source deployment |
+| **Agent Engine** | Core Runtime hosting both layers | Planning Agent, Execution Crew, **and** Control Room Workflow on Agent Engine; Dashboard on Cloud Run as the UI / Live API host | Closed -- AE Control Room is the documented primary path; in-process is a local-dev fallback |
 | **Multi-cloud** | Multi-cloud interoperability | Single environment only | Not started |
 | **A2A end-to-end** | A2A between all agents | A2A only between Control Room and Planner | Wrap Execution Crew in its own A2A server |
 | **Multiple MCP connections** | MCP on both planning and execution sides | MCP only on execution side | Planning Agent has no MCP tools |
