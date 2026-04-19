@@ -3,7 +3,7 @@ steps:
     args:
       - build
       - -f
-      - Dockerfile.control-room
+      - scripts/Dockerfile.control-room
       - -t
       - $_IMAGE_URI
       - --build-arg

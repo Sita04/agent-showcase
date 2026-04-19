@@ -3,7 +3,7 @@ steps:
     args:
       - build
       - -f
-      - Dockerfile.planner-a2a
+      - scripts/Dockerfile.planner-a2a
       - -t
       - $_IMAGE_URI
       - --build-arg

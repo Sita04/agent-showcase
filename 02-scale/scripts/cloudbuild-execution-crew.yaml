@@ -3,7 +3,7 @@ steps:
     args:
       - 'build'
       - '-f'
-      - 'Dockerfile.execution-crew'
+      - 'scripts/Dockerfile.execution-crew'
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/agent-showcase/execution-crew:latest'
       - '.'
