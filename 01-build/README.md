@@ -68,6 +68,9 @@ uv run deploy.py
 ```
 This script packages the code and deploys it to your configured Google Cloud project.
 
+> [!NOTE]
+> You can enter the remote agent ID in your configuration only after successfully deploying the agent, as the ID is generated during the deployment process.
+
 #### 2. Deploy UI to Google Cloud Run
 To deploy the frontend and API server to Cloud Run, use the following command:
 ```bash
