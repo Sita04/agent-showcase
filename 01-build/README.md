@@ -42,10 +42,18 @@ A premium, persona-driven shopping concierge application powered by Gemini and b
    ```bash
    # In agents/.env
    GOOGLE_CLOUD_PROJECT="your_project_id"
-   GOOGLE_CLOUD_LOCATION="us-central1"
+   GOOGLE_CLOUD_LOCATION="your_location"
    GCS_BUCKET="your_staging_bucket"
+   GOOGLE_GENAI_USE_VERTEXAI=1
    STRIPE_SECRET_KEY="your_stripe_secret_key"
-   APP_URL="https://your-ui-service-url.a.run.app"
+   MCP_SERVER_URL="https://ac-web2-761793285222.us-central1.run.app/mcp"
+   MCP_DATASET_ID="mercari1m_mm2"
+   GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true
+   OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
+   REMOTE_AGENT_ID="fill_this_after_you deploy your_agent_in_agent_engine"
+   USE_REMOTE_AGENT=true
+   AUTH_USERNAME=""
+   AUTH_PASSWORD=""
    ```
 
 ### 🚀 Running the Application
@@ -74,11 +82,8 @@ This script packages the code and deploys it to your configured Google Cloud pro
 #### 2. Deploy UI to Google Cloud Run
 To deploy the frontend and API server to Cloud Run, use the following command:
 ```bash
-gcloud run deploy shopping-squad-ui \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=your_project_id,GOOGLE_CLOUD_LOCATION=us-central1,APP_URL=https://your-ui-service-url.a.run.app,STRIPE_SECRET_KEY=your_stripe_secret_key"
+gcloud run deploy shopping-squad-ui --source . --project your-project-id --region your-region --allow-unauthenticated
+
 ```
 
 ## 📁 Project Structure
@@ -97,7 +102,7 @@ gcloud run deploy shopping-squad-ui \
   - `app.js`: Core frontend logic and A2UI rendering engine.
 - `Dockerfile`: Container definition for deployment.
 - `pyproject.toml`: Dependency management configuration.
-- `architecture.md`: High-level architecture documentation.
+- `architecture.png`: High-level architecture documentation.
 
 ## 🏗️ Core Architectural Patterns
 
