@@ -441,14 +441,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // Show typing indicator
-        let loadingText = 'Creating plan...';
+        let loadingText = 'Processing...';
         if (text && text.toLowerCase().includes('yes')) {
             loadingText = 'Dispatching Scouts for search...';
         } else if (text && (text.toLowerCase().includes('similar to') || text.toLowerCase().includes('find_similar_items'))) {
             loadingText = 'Searching...';
-        } else if (text && text.toLowerCase().includes('checkout')) {
+        } else if (text && (text.toLowerCase().includes('checkout') || text.toLowerCase().includes('check out'))) {
             loadingText = 'Processing checkout...';
-        } else if (text && text.toLowerCase().includes('add') && text.toLowerCase().includes('to my order')) {
+        } else if (text && (text.toLowerCase().includes('add') || text.toLowerCase().includes('buy') || text.toLowerCase().includes('take'))) {
             loadingText = 'Adding to Cart...';
         } else if (text && text.toLowerCase().includes('remove') && text.toLowerCase().includes('from my order')) {
             loadingText = 'Removing from Cart...';

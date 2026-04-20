@@ -102,11 +102,63 @@ def _parse_plan_from_state(ctx: Context, original_plan) -> ShoppingPlan | None:
 @node(rerun_on_resume=True)
 async def shopping_workflow(ctx: Context, node_input):
     import re
+    import stripe
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
     max_attempts = 2
     attempt = 0
     run_id = uuid.uuid4().hex[:6]
     attempt_history = []
     
+    # Extract origin if present
+    input_text = _extract_text(node_input) if node_input else ""
+    origin_match = re.search(r'\[Origin: (https?://[^\]]+)\]', input_text)
+    if origin_match:
+        ctx.state["APP_URL"] = origin_match.group(1)
+        # Clean the prompt so the LLM doesn't see it
+        input_text = re.sub(r'\[Origin: [^\]]+\]\s*', '', input_text)
+        
+    input_text_lower = input_text.lower().strip()
+    
+    # Global checkout interception
+    if input_text_lower in ["checkout", "check out", "that is it"]:
+        cart = ctx.state.get("agent_cart", [])
+        if not cart:
+            await _speak(ctx, "Your cart is empty. Add some items before checking out!", f"empty_cart_{run_id}")
+            return {"status": "Awaiting items"}
+            
+        try:
+            import stripe
+            stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+            line_items = []
+            for item in cart:
+                line_items.append({
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {"name": item["name"]},
+                        "unit_amount": int(item["price"] * 100),
+                    },
+                    "quantity": 1,
+                })
+            origin = ctx.state.get("APP_URL") or os.environ.get("APP_URL", "http://localhost:8080")
+            session = stripe.checkout.Session.create(
+                payment_method_types=["card"],
+                line_items=line_items,
+                mode="payment",
+                success_url=f"{origin}/?success=true",
+                cancel_url=f"{origin}/?canceled=true",
+            )
+            payment_url = session.url
+            
+            ctx.state["awaiting_selection"] = False # Finalize the session
+            
+            msg = f"Here is your secure payment link to complete the purchase:\n\n{payment_url}\n\nThank you for shopping with Shopping Squad!"
+            await _speak(ctx, msg, f"checkout_{run_id}")
+            
+            return {"status": "Completed! End of Shopping Workflow."}
+        except Exception as e:
+            await _speak(ctx, f"Error creating payment link: {str(e)}", f"error_{run_id}")
+            return {"status": "Error"}
+            
     # ----------------------------------------------------
     # HITL STATE MACHINE: Final Selection Phase
     # ----------------------------------------------------
@@ -128,14 +180,10 @@ async def shopping_workflow(ctx: Context, node_input):
             current_total = sum(item['price'] for item in cart)
             new_total = current_total + price
             
-            warning = ""
-            if total_budget > 0 and new_total > total_budget:
-                warning = f" WARNING: Adding this item pushes your cart total to ${new_total:.2f}, which exceeds your budget of ${total_budget:.2f}."
-            
             if not any(item['sku'] == sku for item in cart):
                 cart.append({"sku": sku, "name": name, "price": price, "img_url": img_url})
                 ctx.state["agent_cart"] = cart
-                return f"Added {name} to your order.{warning}"
+                return f"Added {name} to your order."
             return f"{name} is already in your order."
             
         def remove_from_agent_cart(sku: str):
@@ -170,7 +218,7 @@ async def shopping_workflow(ctx: Context, node_input):
                 })
                 
             try:
-                origin = os.environ.get("APP_URL", "http://localhost:8080")
+                origin = ctx.state.get("APP_URL") or os.environ.get("APP_URL", "http://localhost:8080")
                 session = stripe.checkout.Session.create(
                     payment_method_types=["card"],
                     line_items=line_items,
@@ -198,10 +246,11 @@ async def shopping_workflow(ctx: Context, node_input):
             Match the user's request to the specific items from the provided options list. The user message will typically include the item name and its SKU (e.g., SKU: ...). Use the SKU to reliably identify the item in the options list.
             
             INSTRUCTIONS:
-            1. If the user wants to ADD an item, call `add_to_agent_cart` (be sure to pass the `img_url` from the options list if available!). If `add_to_agent_cart` returns a message containing 'WARNING', you MUST include that warning in your response to the user!
+            1. If the user wants to ADD an item, call `add_to_agent_cart` (be sure to pass the `img_url` from the options list if available!). CRITICAL: If `add_to_agent_cart` returns a message containing 'WARNING', you MUST include that warning in your response to the user! Do not ignore it if adding multiple items.
             2. If the user wants to REMOVE an item, call `remove_from_agent_cart`.
-            3. If the user wants to CHECKOUT (or says 'That is it' or 'Checkout'), you MUST call `create_checkout_link` to generate a real Stripe payment link for the items in the cart. You MUST include the payment link in your response!
+            3. If the user wants to CHECKOUT (or says 'That is it', 'Checkout', or 'check out'), you MUST call `create_checkout_link` to generate a real Stripe payment link for the items in the cart. You MUST include the payment link in your response!
             4. If they ask what's in their cart, list the items in the current cart.
+            5. If the user wants to add ALL items or implies selecting everything (e.g., 'take all', 'select all', 'all of them'), call `add_to_agent_cart` for EACH item in the options list.
             
             OUTPUT INSTRUCTIONS:
             Create an extremely friendly response in Markdown!
@@ -226,6 +275,21 @@ async def shopping_workflow(ctx: Context, node_input):
         )
         await ctx.run_node(selection_agent, node_input)
         
+        # Post-check budget warning
+        cart = ctx.state.get("agent_cart", [])
+        plan = ctx.state.get("shopping_plan")
+        total_budget = 0.0
+        if plan:
+            if hasattr(plan, "total_budget"):
+                total_budget = float(plan.total_budget)
+            elif isinstance(plan, dict):
+                total_budget = float(plan.get("total_budget", 0.0))
+        
+        current_total = sum(item['price'] for item in cart)
+        if total_budget > 0 and current_total > total_budget:
+            warning_text = f"<br>⚠️ WARNING: Your cart total is now ${current_total:.2f}, which exceeds your budget of ${total_budget:.2f}."
+            await _speak(ctx, warning_text, f"budget_warning_{run_id}_{uuid.uuid4().hex[:4]}")
+            
         # Only complete the workflow if finalize_order was called (which sets awaiting_selection to False)
         if not ctx.state.get("awaiting_selection"):
             return {"status": "Completed! End of Shopping Workflow."}

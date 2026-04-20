@@ -58,7 +58,7 @@ def create_planner_agent(name="shopping_planner_node"):
         - DO NOT use markdown code blocks (no ```json).
         - DO NOT include any text before or after the JSON.
         - Sum of budget_allocation must be <= total_budget.
-        - You MUST generate exactly 3 components in the shopping plan. No more, no less. This ensures a balanced UI layout.
+        - You should typically generate 3 components in the shopping plan for a balanced UI layout, UNLESS the user explicitly requests a specific number of items or requests ONLY a single item. In that case, respect the user's request and generate the appropriate number of components.
         
         RESPONSE FORMAT: JSON only.
         """

@@ -49,7 +49,6 @@ remote_agent = agent_engines.create(
         'OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT': 'true',
         'PROJECT_ID': PROJECT_ID,
         'STRIPE_SECRET_KEY': stripe_secret_key or '',
-        'APP_URL': os.environ.get('APP_URL', ''),
     },
 )
 print(f"Successfully deployed agent: {remote_agent.resource_name}")

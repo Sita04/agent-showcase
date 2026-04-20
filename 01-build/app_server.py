@@ -155,6 +155,10 @@ async def basic_auth_middleware(request: Request, call_next):
     if request.url.path == "/api/health":
         return await call_next(request)
         
+    # Skip auth for Stripe redirects to avoid asking for credentials again
+    if request.url.path == "/" and ("success=true" in request.url.query or "canceled=true" in request.url.query):
+        return await call_next(request)
+        
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         return Response("Unauthorized", status_code=401, headers={"WWW-Authenticate": "Basic"})
@@ -220,7 +224,8 @@ async def health_check():
 async def chat(request: Request, prompt: Optional[str] = Form(None), image: Optional[UploadFile] = File(None), persona: Optional[str] = Form(None), session_id: Optional[str] = Form(None)):
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
     origin = request.headers.get("origin") or f"{scheme}://{request.url.netloc}"
-    os.environ["APP_URL"] = origin
+    if "APP_URL" not in os.environ:
+        os.environ["APP_URL"] = origin
     # print(f"DEBUG: /api/chat received prompt='{prompt}', persona='{persona}', session_id='{session_id}'")
     if not session_id:
         session_id = "demo_session_1"
@@ -233,6 +238,9 @@ async def chat(request: Request, prompt: Optional[str] = Form(None), image: Opti
     full_prompt = prompt or ""
     if persona and persona != "none":
         full_prompt = f"[User Persona: {persona}] {full_prompt}".strip()
+        
+    # Prepend origin for dynamic URL resolution in agent
+    full_prompt = f"[Origin: {origin}] {full_prompt}".strip()
         
     if full_prompt:
         parts.append(GenAIPart.from_text(text=full_prompt))
@@ -752,7 +760,7 @@ async def create_checkout_session(items: List[CartItem], request: Request):
             })
             
         scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
-        origin = request.headers.get("origin") or f"{scheme}://{request.url.netloc}"
+        origin = os.environ.get("APP_URL") or request.headers.get("origin") or f"{scheme}://{request.url.netloc}"
         
         # print(f"DEBUG: Creating Stripe session with line_items: {line_items}")
         
