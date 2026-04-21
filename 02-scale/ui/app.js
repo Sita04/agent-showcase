@@ -1,4 +1,4 @@
-// Scale Agents Dashboard Logic v1.38 - Live WS reconnect with backoff + mid-turn retry
+// Scale Agents Dashboard Logic v1.40 - One Live API session per browser session
 console.log('[DEBUG] Script v1.38 starting load...');
 
 // Global state
@@ -672,7 +672,6 @@ async function sendExplainerMessage(messageOverride = '') {
         const transcript = await runLiveTurn({
             kind: 'chat',
             message,
-            history: explainerHistory.slice(-12),
             state: {
                 active_cuj: activeCuj,
                 completed_cujs: Array.from(completedCujIds),

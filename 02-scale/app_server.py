@@ -174,106 +174,84 @@ def _load_explainer_knowledge() -> str:
         )
 
 
-def _build_chat_prompt(message: str, history: list, state: dict) -> str:
+def _build_system_instruction() -> str:
     knowledge = _load_explainer_knowledge()
-    history_text = "\n".join(
-        f"{(m or {}).get('role', 'user')}: {(m or {}).get('text', '')}"
-        for m in (history or [])[-10:]
-    )
     return f"""
 You are the Explainer AI for the Scale Agents Control Room demo.
-Use the public demo knowledge and the current dashboard state below as your primary source.
-Be concise, concrete, and helpful for a first-time conference/demo user.
-When useful, guide the user toward trying CUJ 1, then CUJ 2, then CUJ 3.
-Do not mention internal project IDs, private deployment steps, service account emails, or implementation logs.
+You receive three kinds of turns over a single persistent session, each
+prefixed with a tag. The session keeps its own conversation history, so
+treat earlier turns as already known — do not re-summarize them.
 
-When the user asks for technical detail about any product or technology used in the demo
-(ADK, LangGraph, CrewAI, A2A Protocol, MCP, Vertex AI Agent Engine, Gemini Live API,
-Gemini 3 models, or related tools), call the google_search tool to fetch the latest
-official information before answering. Prefer the reference URLs listed in the demo
-knowledge as starting points. Keep the answer short and grounded in the search results.
+[CHAT] — a question from the user. Answer concisely (2-4 sentences) and,
+when useful, guide them toward trying CUJ 1, then CUJ 2, then CUJ 3.
+When the user asks for technical detail about any product or technology
+used in the demo (ADK, LangGraph, CrewAI, A2A Protocol, MCP, Vertex AI
+Agent Engine, Gemini Live API, Gemini 3 models, or related tools), call
+the google_search tool to fetch the latest official information before
+answering. Prefer the reference URLs listed in the demo knowledge as
+starting points. Keep the answer short and grounded in search results.
+
+[OBSERVE] — new agent events from the live demo. In ONE short sentence
+(max two), refer to the agent using exactly one of "Control Room",
+"Planner", or "Executor" — never invent other names like "Sourcing
+Specialist" or "Procurement Officer"; attribute sub-agent actions to
+the named parent. Be terse: no preamble, no recap of prior turns, no
+implementation details, no recommendations of other CUJs. Do NOT end
+with a follow-up question or invitation to ask more (e.g. "What would
+you like to know about this?", "Can I clarify anything?", "What part
+are you interested in?") — the workflow is still running and the user
+is watching, not chatting. Just narrate the action and stop. If a
+final report is present, summarize the outcome in one sentence. Do
+not call the google_search tool for OBSERVE turns.
+
+[SUMMARY] — a CUJ has just finished. Open with exactly "The workflow
+finished." so the audience knows the run is over. Do not characterize
+the outcome in this opener (no "successfully" / "failed" / "blocked")
+— a "failed" report can still be the intended demo outcome (e.g. the
+Identity Shield CUJ deliberately blocks a destructive action). Then,
+in 2-3 short sentences total: (1) recap which agents ran and what they
+accomplished (or, if blocked or failed, why), using exactly the names
+"Control Room", "Planner", "Executor"; (2) state the demo concept this
+CUJ illustrates. Plain public-facing language; no implementation
+details, no recommendations of other CUJs. Do not call the
+google_search tool for SUMMARY turns.
+
+For all turns: never mention internal project IDs, deployment steps,
+service account emails, or implementation logs.
 
 PUBLIC DEMO KNOWLEDGE:
 {knowledge}
-
-CURRENT DASHBOARD STATE:
-{json.dumps(state or {}, ensure_ascii=False)}
-
-RECENT EXPLAINER CHAT:
-{history_text}
-
-USER QUESTION:
-{message}
 """.strip()
 
 
-def _build_summary_prompt(cuj, final_report, status, completed_cujs) -> str:
-    knowledge = _load_explainer_knowledge()
-    cuj_obj = cuj or {}
-    return f"""
-You are wrapping up a CUJ in the Scale Agents live demo.
-
-In 2-3 short sentences total:
-1. Recap what just happened — which agents ran and what they accomplished
-   (or, if blocked/failed, why). Refer to the agents using exactly these
-   names: "Control Room", "Planner", "Executor". Do not invent other
-   names like "Sourcing Specialist" or "Procurement Officer".
-2. State the point of this CUJ — the demo concept it illustrates.
-
-Use plain public-facing language. No preamble, no implementation details,
-no recommendations of other CUJs.
-
-PUBLIC DEMO KNOWLEDGE:
-{knowledge}
-
-CUJ:
-{json.dumps(cuj_obj, ensure_ascii=False)}
-
-OUTCOME STATUS:
-{status or 'Success'}
-
-FINAL REPORT:
-{final_report or ''}
-
-COMPLETED CUJS SO FAR:
-{json.dumps(completed_cujs or [], ensure_ascii=False)}
-""".strip()
+def _build_chat_turn(message: str, state: dict) -> str:
+    return (
+        "[CHAT]\n"
+        f"CURRENT DASHBOARD STATE: {json.dumps(state or {}, ensure_ascii=False)}\n"
+        f"USER QUESTION: {message}"
+    )
 
 
-def _build_observe_prompt(current_events, recent_events, active_cuj, completed_cujs, final_report) -> str:
-    knowledge = _load_explainer_knowledge()
-    # Each `current_events` chunk now contains the events from a single agent
-    # (the client groups consecutive same-role events and seals the chunk on
-    # role change). Narrate that one agent's run in a few sentences.
+def _build_observe_turn(current_events, active_cuj, final_report) -> str:
     events = current_events if isinstance(current_events, list) else [current_events or {}]
     agent = (events[0].get("agent") if events else "") or "Control Room"
-    return f"""
-You are narrating the Scale Agents live demo as it runs.
-The events below are all from the {agent}. In ONE short sentence
-(maximum two), refer to the agent as exactly "{agent}" (one of:
-"Control Room", "Planner", "Executor") and say what it just did. Do not
-invent other names like "Sourcing Specialist" or "Procurement Officer";
-if the text mentions sub-agents, attribute the action to the {agent}.
-Be terse — no preamble, no recap of prior turns, no implementation
-details. If a final report is present, summarize the outcome in one
-sentence.
-Do not suggest, recommend, or mention any other CUJ — focus only on the current events.
+    fr = f"\nFINAL REPORT: {final_report}" if final_report else ""
+    return (
+        "[OBSERVE]\n"
+        f"AGENT: {agent}\n"
+        f"ACTIVE CUJ: {json.dumps(active_cuj, ensure_ascii=False)}\n"
+        f"NEW EVENTS (this agent's run, chronological): {json.dumps(events, ensure_ascii=False)}"
+        f"{fr}"
+    )
 
-PUBLIC DEMO KNOWLEDGE:
-{knowledge}
 
-ACTIVE CUJ:
-{json.dumps(active_cuj, ensure_ascii=False)}
-
-COMPLETED CUJS:
-{json.dumps(completed_cujs or [], ensure_ascii=False)}
-
-CURRENT EVENTS (this agent's run, chronological):
-{json.dumps(events, ensure_ascii=False)}
-
-FINAL REPORT:
-{final_report or ''}
-""".strip()
+def _build_summary_turn(cuj, final_report, status) -> str:
+    return (
+        "[SUMMARY]\n"
+        f"CUJ: {json.dumps(cuj or {}, ensure_ascii=False)}\n"
+        f"OUTCOME STATUS: {status or 'Success'}\n"
+        f"FINAL REPORT: {final_report or ''}"
+    )
 
 
 @api_app.get("/explainer/knowledge")
@@ -292,66 +270,69 @@ async def explainer_live(ws: WebSocket):
     else:
         client = genai.Client(vertexai=True, project=PROJECT_ID, location=EXPLAINER_REGION)
 
-    def _build_live_config(use_search: bool):
-        # google_search grounding is only enabled for chat turns so narration
-        # stays low-latency and on-script.
-        tools = [types.Tool(google_search=types.GoogleSearch())] if use_search else None
-        return types.LiveConnectConfig(
-            response_modalities=["AUDIO"],
-            output_audio_transcription=types.AudioTranscriptionConfig(),
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=EXPLAINER_LIVE_VOICE)
-                )
-            ),
-            tools=tools,
-        )
+    # One Live API session per browser session. The static knowledge and
+    # per-kind behavior rules live in the system instruction, and the
+    # session keeps its own conversation history — so per-turn payloads
+    # only carry the new dynamic content (the latest user message, the
+    # new agent events, or the just-finished CUJ outcome).
+    #
+    # google_search is enabled at the session level since chat turns can
+    # arrive at any time; the system instruction tells the model not to
+    # search on observe / summary turns.
+    live_config = types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        output_audio_transcription=types.AudioTranscriptionConfig(),
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=EXPLAINER_LIVE_VOICE)
+            )
+        ),
+        tools=[types.Tool(google_search=types.GoogleSearch())],
+        system_instruction=_build_system_instruction(),
+    )
 
     try:
-        while True:
-            try:
-                raw = await ws.receive_text()
-            except WebSocketDisconnect:
-                return
-            try:
-                payload = json.loads(raw)
-            except Exception:
-                continue
+        async with client.aio.live.connect(
+            model=EXPLAINER_LIVE_MODEL, config=live_config
+        ) as session:
+            while True:
+                try:
+                    raw = await ws.receive_text()
+                except WebSocketDisconnect:
+                    return
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    continue
 
-            kind = payload.get("kind")
-            if kind == "chat":
-                prompt = _build_chat_prompt(
-                    payload.get("message", ""),
-                    payload.get("history", []),
-                    payload.get("state", {}),
-                )
-            elif kind == "observe":
-                # Prefer `current_events` (plural, debounce-window batch) but
-                # accept `current_event` (singular) for any older client.
-                events = payload.get("current_events")
-                if events is None:
-                    single = payload.get("current_event")
-                    events = [single] if single else []
-                prompt = _build_observe_prompt(
-                    events,
-                    payload.get("recent_events", []),
-                    payload.get("active_cuj"),
-                    payload.get("completed_cujs", []),
-                    payload.get("final_report", ""),
-                )
-            elif kind == "summary":
-                prompt = _build_summary_prompt(
-                    payload.get("cuj"),
-                    payload.get("final_report", ""),
-                    payload.get("status", "Success"),
-                    payload.get("completed_cujs", []),
-                )
-            else:
-                continue
+                kind = payload.get("kind")
+                if kind == "chat":
+                    prompt = _build_chat_turn(
+                        payload.get("message", ""),
+                        payload.get("state", {}),
+                    )
+                elif kind == "observe":
+                    # Prefer `current_events` (plural, debounce-window batch) but
+                    # accept `current_event` (singular) for any older client.
+                    events = payload.get("current_events")
+                    if events is None:
+                        single = payload.get("current_event")
+                        events = [single] if single else []
+                    prompt = _build_observe_turn(
+                        events,
+                        payload.get("active_cuj"),
+                        payload.get("final_report", ""),
+                    )
+                elif kind == "summary":
+                    prompt = _build_summary_turn(
+                        payload.get("cuj"),
+                        payload.get("final_report", ""),
+                        payload.get("status", "Success"),
+                    )
+                else:
+                    continue
 
-            live_config = _build_live_config(use_search=(kind == "chat"))
-            try:
-                async with client.aio.live.connect(model=EXPLAINER_LIVE_MODEL, config=live_config) as session:
+                try:
                     await session.send_realtime_input(text=prompt)
                     async for response in session.receive():
                         sc = getattr(response, "server_content", None)
@@ -367,10 +348,17 @@ async def explainer_live(ws: WebSocket):
                             await ws.send_text(json.dumps({"type": "transcript", "delta": ot.text}))
                         if getattr(sc, "turn_complete", False):
                             break
-                await ws.send_text(json.dumps({"type": "turn_complete"}))
-            except Exception as e:
-                print(f"[Explainer] live turn failed: {e}")
-                await ws.send_text(json.dumps({"type": "error", "message": str(e)[:200]}))
+                    await ws.send_text(json.dumps({"type": "turn_complete"}))
+                except Exception as e:
+                    # The Live session is shared across turns — if the upstream
+                    # connection died, signal the client and tear down the WS so
+                    # it reconnects with a fresh session.
+                    print(f"[Explainer] live turn failed: {e}")
+                    try:
+                        await ws.send_text(json.dumps({"type": "error", "message": str(e)[:200]}))
+                    except Exception:
+                        pass
+                    raise
     except WebSocketDisconnect:
         return
     except Exception as e:
