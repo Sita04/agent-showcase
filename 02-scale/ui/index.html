@@ -69,7 +69,7 @@
             <div class="controls">
                 <div class="input-wrapper">
                     <input type="text" id="user-input" placeholder="Enter inventory alert or logistics objective...">
-                    <button id="send-btn" class="send-btn" onclick="if(window.sendMessage) { window.sendMessage(); } else { alert('JS not loaded'); }">Dispatch</button>
+                    <button id="send-btn" class="send-btn" onclick="if(window.handleDispatchClick) { window.handleDispatchClick(); } else { alert('JS not loaded'); }">Dispatch</button>
                 </div>
             </div>
         </main>

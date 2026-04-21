@@ -25,6 +25,8 @@ let liveSocketConnecting = null;
 let liveTurnQueue = Promise.resolve();
 let liveConnected = false;
 let explainerBusy = false;
+let isDispatching = false;
+let currentDispatchController = null;
 const LIVE_RECONNECT_MAX_ATTEMPTS = 5;
 const LIVE_RECONNECT_BASE_MS = 500;
 const LIVE_RECONNECT_MAX_MS = 10000;
@@ -106,10 +108,14 @@ async function sendMessage() {
         return;
     }
 
-    // Visual feedback
-    btn.disabled = true;
-    btn.textContent = 'Processing...';
+    // Main Dispatch button doubles as the Stop control while the workflow runs.
+    isDispatching = true;
+    btn.textContent = 'Stop';
+    btn.setAttribute('aria-label', 'Stop the running workflow');
+    input.disabled = true;
+    input.placeholder = 'Workflow running — Stop to interrupt…';
     if (status) status.textContent = 'Running...';
+    currentDispatchController = new AbortController();
     activeCuj = detectCujFromPrompt(text);
     updateExplainerCujButtons();
     if (activeCuj) {
@@ -130,7 +136,8 @@ async function sendMessage() {
         console.log('[DEBUG] Fetching /api/chat...');
         const response = await fetch('/api/chat', {
             method: 'POST',
-            body: formData
+            body: formData,
+            signal: currentDispatchController.signal
         });
 
         if (!response.ok) throw new Error('Server returned ' + response.status);
@@ -162,13 +169,22 @@ async function sendMessage() {
             }
         }
     } catch (error) {
-        console.error('[DEBUG] Chat Error:', error);
-        removeThinkingIndicator();
-        appendMessage('Error: ' + error.message, 'agent', 'security');
+        if (error && error.name === 'AbortError') {
+            console.log('[DEBUG] Chat aborted by user');
+            appendMessage('Workflow stopped.', 'agent', 'security');
+        } else {
+            console.error('[DEBUG] Chat Error:', error);
+            removeThinkingIndicator();
+            appendMessage('Error: ' + error.message, 'agent', 'security');
+        }
     } finally {
         removeThinkingIndicator();
-        btn.disabled = false;
+        isDispatching = false;
+        currentDispatchController = null;
         btn.textContent = 'Dispatch';
+        btn.setAttribute('aria-label', 'Dispatch workflow');
+        input.disabled = false;
+        input.placeholder = 'Enter inventory alert or logistics objective...';
         if (status) status.textContent = 'Idle';
         updateExplainerCujButtons();
     }
@@ -609,6 +625,12 @@ function applyExplainerEnabled() {
     document.querySelectorAll('.explainer-suggestions button').forEach((b) => { b.disabled = !enabled; });
 }
 
+function stopWorkflow() {
+    if (currentDispatchController) {
+        currentDispatchController.abort();
+    }
+}
+
 function setLiveConnected(connected) {
     if (liveConnected === connected) return;
     liveConnected = connected;
@@ -828,9 +850,8 @@ async function drainExplainerQueue() {
 function runCuj(cujId) {
     const cuj = CUJS.find((candidate) => candidate.id === String(cujId));
     const inputEl = document.getElementById('user-input');
-    const sendBtn = document.getElementById('send-btn');
     if (!cuj || !inputEl) return;
-    if (sendBtn && sendBtn.disabled) {
+    if (isDispatching) {
         appendExplainerMessage('A CUJ is already running. I will suggest the next one when it finishes.', 'agent');
         return;
     }
@@ -843,8 +864,7 @@ function updateExplainerCujButtons() {
         const cujId = btn.getAttribute('data-run-cuj');
         btn.classList.toggle('completed', completedCujIds.has(cujId));
         btn.classList.toggle('active', Boolean(activeCuj && activeCuj.id === cujId));
-        const sendBtn = document.getElementById('send-btn');
-        btn.disabled = Boolean(sendBtn && sendBtn.disabled && !(activeCuj && activeCuj.id === cujId));
+        btn.disabled = Boolean(isDispatching && !(activeCuj && activeCuj.id === cujId));
     });
     updateExplainerSuggestions();
 }
@@ -895,15 +915,24 @@ function updateExplainerSuggestions() {
     applyExplainerEnabled();
 }
 
+function handleDispatchClick() {
+    if (isDispatching) {
+        stopWorkflow();
+    } else {
+        sendMessage();
+    }
+}
+
 // Expose globally
 window.sendMessage = sendMessage;
+window.handleDispatchClick = handleDispatchClick;
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[DEBUG] DOM Content Loaded - v1.15');
     const input = document.getElementById('user-input');
     if (input) {
         input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
+            if (e.key === 'Enter' && !isDispatching) sendMessage();
         });
     }
 
