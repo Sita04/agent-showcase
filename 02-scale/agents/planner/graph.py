@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 
 from langgraph.graph import StateGraph, END
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -72,6 +73,95 @@ class _SessionContextVar:
 
 
 current_session_id = _SessionContextVar
+
+
+_PRODUCTS_MARKER_RE = re.compile(r"<!--PRODUCTS:(\[.*?\])-->", re.DOTALL)
+# Mercari item ids look like 'm' followed by 10+ digits. Used as a fallback
+# extractor when the search tool's raw result isn't valid JSON we can walk.
+_MERCARI_ID_RE = re.compile(r"\bm\d{8,}\b")
+
+
+def _extract_products_from_text(text: str, max_items: int = 8) -> list[dict]:
+    """Best-effort extraction of product objects from a search tool's raw
+    result. Tries JSON walking first (objects with `id` or `product_id`),
+    falls back to regex matching the Mercari id shape (id-only entries).
+    De-duplicated by id, capped at max_items."""
+    if not text:
+        return []
+    products: list[dict] = []
+
+    def _to_product(node: dict) -> dict | None:
+        pid = node.get("id") or node.get("product_id")
+        if not isinstance(pid, str) or not pid:
+            return None
+        return {
+            "id": pid,
+            "name": node.get("name") or node.get("title") or "",
+            "price": node.get("price"),
+            "description": (
+                node.get("description")
+                or node.get("desc")
+                or node.get("summary")
+                or ""
+            ),
+        }
+
+    def _walk(node):
+        if isinstance(node, dict):
+            entry = _to_product(node)
+            if entry:
+                products.append(entry)
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    try:
+        _walk(json.loads(text))
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
+
+    if not products:
+        for pid in _MERCARI_ID_RE.findall(text):
+            products.append({"id": pid, "name": "", "price": None, "description": ""})
+
+    seen: set[str] = set()
+    out: list[dict] = []
+    for entry in products:
+        pid = entry.get("id")
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        out.append(entry)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _format_found_candidates_message(products: list[dict]) -> str:
+    """Render a search-result status line with the marker the UI parses to
+    show product thumbnails."""
+    ids = [p["id"] for p in products]
+    preview = ", ".join(f"`{i}`" for i in ids[:5])
+    extra = "" if len(ids) <= 5 else f" (+{len(ids) - 5} more)"
+    return (
+        f"Found {len(ids)} candidate(s): {preview}{extra}\n"
+        f"<!--PRODUCTS:{json.dumps(products)}-->"
+    )
+
+
+def _split_products_marker(text: str) -> tuple[str, str]:
+    """Pull the trailing <!--PRODUCTS:[...]--> marker out of an execution
+    result so the report-generator LLM never sees it (and never invents
+    commentary about it). Returns (clean_text, marker_or_empty)."""
+    if not text:
+        return text, ""
+    match = _PRODUCTS_MARKER_RE.search(text)
+    if not match:
+        return text, ""
+    cleaned = _PRODUCTS_MARKER_RE.sub("", text).rstrip()
+    return cleaned, match.group(0)
 
 
 def _push_to_dashboard(
@@ -285,6 +375,9 @@ class PlannerNodes:
                     # ToolResult — show a brief summary of what came back
                     if step_type == "ToolResult":
                         result = getattr(step, 'result', '') or ''
+                        products = _extract_products_from_text(result)
+                        if products:
+                            return _format_found_candidates_message(products)
                         if "results" in result:
                             return None  # Skip raw results; the next AgentAction will summarize
                         if "Error" in result or "error" in result:
@@ -402,9 +495,15 @@ class PlannerNodes:
             f"Their report:\n{prior_result}\n\n"
             "Rewrite the item description into a SHORTER, more generic query\n"
             "that drops brand-specific or model-number tokens but preserves\n"
-            "the product category. Examples:\n"
-            "  'XR-7000 Quantum Display' -> 'display screen'\n"
+            "the FINISHED CONSUMER PRODUCT category. Use the everyday name a\n"
+            "shopper would search for — not an abstract feature, component,\n"
+            "or part. Examples:\n"
+            "  'XR-7000 Quantum Display' -> 'computer monitor'\n"
+            "  'Acme PixelPerfect 4K Panel' -> 'computer monitor'\n"
             "  'Acme HyperWidget 9000 X' -> 'widget'\n"
+            "Avoid generic feature words like 'display', 'screen', or 'panel'\n"
+            "on their own — they pull in replacement parts and accessories\n"
+            "instead of the standalone product.\n"
             "Respond with ONLY the rewritten item description, no quotes,\n"
             "no preamble."
         )
@@ -517,17 +616,43 @@ class PlannerNodes:
         _push_to_dashboard("Generating the final procurement report...", "system")
         if self.on_update:
             await self.on_update("Generating the final procurement report...")
-        
+
+        execution_result = state.get("execution_result") or "No result returned."
+        clean_result, products_marker = _split_products_marker(execution_result)
+
+        # The Re-Planner may have intentionally broadened the original item
+        # description (CUJ 3). Tell the report-generator so it doesn't write
+        # "does not match" against a deliberate substitute -- the upstream
+        # Control Room treats that phrase as a retryable failure signal and
+        # would loop us through another (unnecessary) re-planning round.
+        replan_attempts = state.get("replan_attempts") or 0
+        original_item = state.get("original_item_description") or ""
+        effective_item = state.get("item_description") or original_item or "Unknown Item"
+        if replan_attempts > 0 and original_item and original_item != effective_item:
+            replan_context = (
+                f"Re-Planner broadened the original item description "
+                f"'{original_item}' to '{effective_item}' (attempt "
+                f"{replan_attempts}). This substitution is the system's "
+                f"intended behavior when the original SKU is unavailable."
+            )
+        else:
+            replan_context = "none"
+
         prompt = REPORT_GENERATOR_PROMPT.format(
             objective=state.get("objective", "Unknown Objective"),
-            execution_result=state.get("execution_result", "No result returned.")
+            replan_context=replan_context,
+            effective_item=effective_item,
+            execution_result=clean_result,
         )
-        
+
         response = self.llm.invoke(prompt)
-        
+        report = str(response.content).rstrip()
+        if products_marker:
+            report = f"{report}\n\n{products_marker}"
+
         return {
             "current_step": "completed",
-            "final_report": str(response.content)
+            "final_report": report
         }
 
 def route_after_analysis(state: PlanState) -> str:

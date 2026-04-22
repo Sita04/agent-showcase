@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.42 - Default-on narration + Reset button
-console.log('[DEBUG] Script v1.42 starting load...');
+// Scale Agents Dashboard Logic v1.45 - Mercari attribution credit
+console.log('[DEBUG] Script v1.45 starting load...');
 
 // Global state
 //
@@ -300,27 +300,122 @@ function removeThinkingIndicator() {
     thinkingIndicator = null;
 }
 
+// Strip the executor / final-report HTML comment marker that carries product
+// objects alongside text. Returns the cleaned text plus the parsed list of
+// {id, name, price, description}. Non-greedy so multiple markers in one
+// payload are each stripped individually.
+const PRODUCTS_MARKER_RE = /<!--PRODUCTS:(\[[\s\S]*?\])-->/;
+const PRODUCTS_MARKER_RE_G = /<!--PRODUCTS:(\[[\s\S]*?\])-->/g;
+
+function extractProducts(text) {
+    if (!text) return { cleanText: text || '', products: [] };
+    const match = text.match(PRODUCTS_MARKER_RE);
+    if (!match) return { cleanText: text, products: [] };
+    let products = [];
+    try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed)) {
+            products = parsed.filter((p) => p && typeof p.id === 'string' && p.id);
+        }
+    } catch (_) {}
+    const cleanText = text.replace(PRODUCTS_MARKER_RE_G, '').trim();
+    return { cleanText, products };
+}
+
+function buildProductGallery(products) {
+    if (!products || products.length === 0) return null;
+    const gallery = document.createElement('div');
+    gallery.className = 'product-gallery';
+    products.forEach((product) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'product-thumb';
+        btn.title = product.name || product.id;
+        btn.setAttribute('aria-label', `Open details for ${product.name || product.id}`);
+        const img = document.createElement('img');
+        img.src = `https://u-mercari-images.mercdn.net/photos/${encodeURIComponent(product.id)}_1.jpg?w=200&h=200&fitcrop&sharpen`;
+        img.alt = product.name || product.id;
+        img.loading = 'lazy';
+        img.width = 100;
+        img.height = 100;
+        btn.appendChild(img);
+        btn.addEventListener('click', () => openProductModal(product));
+        gallery.appendChild(btn);
+    });
+    return gallery;
+}
+
+function formatProductPrice(price) {
+    if (price === null || price === undefined || price === '') return '';
+    const n = Number(price);
+    if (!Number.isFinite(n)) return String(price);
+    return `$${n.toFixed(2)}`;
+}
+
+function openProductModal(product) {
+    const modal = document.getElementById('product-modal');
+    if (!modal || !product) return;
+    const img = modal.querySelector('.product-modal-image');
+    const title = modal.querySelector('.product-modal-title');
+    const price = modal.querySelector('.product-modal-price');
+    const desc = modal.querySelector('.product-modal-description');
+    if (img) {
+        img.src = `https://u-mercari-images.mercdn.net/photos/${encodeURIComponent(product.id)}_1.jpg?w=600&h=600&fitcrop&sharpen`;
+        img.alt = product.name || product.id;
+    }
+    if (title) title.textContent = product.name || product.id;
+    if (price) {
+        const formatted = formatProductPrice(product.price);
+        price.textContent = formatted;
+        price.style.display = formatted ? '' : 'none';
+    }
+    if (desc) {
+        desc.textContent = product.description || '';
+        desc.style.display = product.description ? '' : 'none';
+    }
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeProductModal() {
+    const modal = document.getElementById('product-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    const img = modal.querySelector('.product-modal-image');
+    if (img) img.src = '';
+}
+
 // Append a status line — merges into the current bubble if same role
 function appendStatusLine(content, role, styleType) {
     const chatWindow = document.getElementById('chat-window');
     if (!chatWindow) return;
 
-    // Deduplicate
-    const normalized = content.trim();
+    const { cleanText, products } = extractProducts(content);
+
+    // Deduplicate against the rendered (clean) text so a re-emitted marker
+    // with the same product list doesn't spam the bubble.
+    const normalized = cleanText.trim();
     if (normalized === lastMessageText) return;
     lastMessageText = normalized;
 
     removeThinkingIndicator();
 
+    const renderInto = (line) => {
+        if (window.marked) {
+            line.innerHTML = marked.parse(cleanText);
+        } else {
+            line.textContent = cleanText;
+        }
+        const gallery = buildProductGallery(products);
+        if (gallery) line.appendChild(gallery);
+    };
+
     // If same role as current bubble, append a new line to it
     if (currentBubble && currentBubbleRole === role) {
         const line = document.createElement('div');
         line.className = 'status-line';
-        if (window.marked) {
-            line.innerHTML = marked.parse(content);
-        } else {
-            line.textContent = content;
-        }
+        renderInto(line);
         currentBubble.appendChild(line);
         chatWindow.scrollTop = chatWindow.scrollHeight;
         showThinkingIndicator();
@@ -341,11 +436,7 @@ function appendStatusLine(content, role, styleType) {
     // First status line
     const line = document.createElement('div');
     line.className = 'status-line';
-    if (window.marked) {
-        line.innerHTML = marked.parse(content);
-    } else {
-        line.textContent = content;
-    }
+    renderInto(line);
     msgDiv.appendChild(line);
 
     chatWindow.appendChild(msgDiv);
@@ -368,14 +459,21 @@ function appendMessage(content, sender, type = 'normal') {
 
     if (sender === 'agent') removeThinkingIndicator();
 
+    const { cleanText, products } = sender === 'agent'
+        ? extractProducts(content)
+        : { cleanText: content, products: [] };
+
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${sender} ${type}`;
 
     if (sender === 'agent' && window.marked) {
-        msgDiv.innerHTML = marked.parse(content);
+        msgDiv.innerHTML = marked.parse(cleanText);
     } else {
-        msgDiv.textContent = content;
+        msgDiv.textContent = cleanText;
     }
+
+    const gallery = buildProductGallery(products);
+    if (gallery) msgDiv.appendChild(gallery);
 
     chatWindow.appendChild(msgDiv);
     chatWindow.scrollTop = chatWindow.scrollHeight;
@@ -400,12 +498,14 @@ function simplifyEvent(event, finalReport = '') {
     };
 
     if (event.type === 'status') {
-        simplified.text = truncateText(event.text || '', 900);
+        const { cleanText } = extractProducts(event.text || '');
+        simplified.text = truncateText(cleanText, 900);
     } else if (event.type === 'adk_event' && event.output) {
         const output = event.output;
         simplified.status = output.status || '';
         const report = typeof output === 'string' ? output : (output.report || '');
-        simplified.report = truncateText(finalReport || report, 1200);
+        const { cleanText } = extractProducts(finalReport || report);
+        simplified.report = truncateText(cleanText, 1200);
     }
 
     return simplified;
@@ -1021,6 +1121,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (resetBtn) {
         resetBtn.addEventListener('click', resetSession);
     }
+
+    const productModal = document.getElementById('product-modal');
+    if (productModal) {
+        productModal.addEventListener('click', (e) => {
+            if (e.target === productModal || e.target.closest('[data-close-modal]')) {
+                closeProductModal();
+            }
+        });
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('product-modal');
+            if (modal && !modal.classList.contains('hidden')) closeProductModal();
+        }
+    });
 
     updateExplainerCujButtons();
     applyExplainerEnabled();

@@ -27,6 +27,7 @@ except ImportError:
     from src.tasks import ExecutorTasks
     from src.tools import get_mcp_server, get_mock_oms_mcp
 from dotenv import load_dotenv
+import json
 import logging
 import threading
 import time
@@ -42,6 +43,55 @@ logging.basicConfig(level=logging.INFO)
 # Load environment variables and set dummy OpenAI API key
 load_dotenv()
 os.environ["OPENAI_API_KEY"] = config.DUMMY_OPENAI_KEY
+
+def _collect_products(crew_output) -> list[dict]:
+    """Collect every product surfaced by the crew (sourcing candidates +
+    selected procurement item), de-duplicated by id, in first-seen order.
+    Captures id/name/price/description so the UI can render a detail modal
+    without a second backend round-trip. ProductCandidate.match_reason
+    doubles as the description because the catalog model itself doesn't
+    expose long-form descriptions to the agents."""
+    seen: set[str] = set()
+    products: list[dict] = []
+
+    def _add(pid, name="", price=None, description=""):
+        if not isinstance(pid, str) or not pid or pid in seen:
+            return
+        seen.add(pid)
+        products.append({
+            "id": pid,
+            "name": name or "",
+            "price": price,
+            "description": description or "",
+        })
+
+    for task_output in getattr(crew_output, "tasks_output", None) or []:
+        pyd = getattr(task_output, "pydantic", None)
+        if not pyd:
+            continue
+        for candidate in getattr(pyd, "candidates", None) or []:
+            _add(
+                getattr(candidate, "id", None),
+                getattr(candidate, "name", "") or "",
+                getattr(candidate, "price", None),
+                getattr(candidate, "match_reason", "") or "",
+            )
+        _add(
+            getattr(pyd, "selected_product_id", None),
+            getattr(pyd, "selected_product_name", "") or "",
+        )
+    return products
+
+
+def _append_products_marker(text: str, products: list[dict]) -> str:
+    """Embed products in a downstream-invisible HTML comment so they ride
+    along through the planner LLM, the A2A artifact text, and the dashboard
+    SSE without needing schema changes at every hop. The UI parses the marker
+    out before rendering."""
+    if not products:
+        return text
+    return f"{text}\n<!--PRODUCTS:{json.dumps(products)}-->"
+
 
 class LogisticsExecutionCrew:
     """Orchestrates the Sourcing and Procurement Agents."""
@@ -158,7 +208,8 @@ class LogisticsExecutionCrew:
             heartbeat_thread.start()
             result = crew.kickoff()
             heartbeat_stop.set()
-            return result
+            products = _collect_products(result)
+            return _append_products_marker(str(result), products)
 
 # Example Usage (for testing)
 if __name__ == "__main__":

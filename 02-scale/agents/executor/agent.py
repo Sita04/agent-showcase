@@ -20,8 +20,79 @@ Exposes the crew as a custom agent deployable to Agent Engine via
 
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+
+_MERCARI_ID_RE = re.compile(r"\bm\d{8,}\b")
+
+
+def _extract_products_from_text(text: str, max_items: int = 8) -> list[dict]:
+    """Same heuristic as the planner's local step callback: walk JSON for
+    product-shaped objects, fall back to Mercari id regex (id-only). Kept
+    inline so this module stays standalone for Agent Engine deploys."""
+    if not text:
+        return []
+    products: list[dict] = []
+
+    def _to_product(node: dict) -> dict | None:
+        pid = node.get("id") or node.get("product_id")
+        if not isinstance(pid, str) or not pid:
+            return None
+        return {
+            "id": pid,
+            "name": node.get("name") or node.get("title") or "",
+            "price": node.get("price"),
+            "description": (
+                node.get("description")
+                or node.get("desc")
+                or node.get("summary")
+                or ""
+            ),
+        }
+
+    def _walk(node):
+        if isinstance(node, dict):
+            entry = _to_product(node)
+            if entry:
+                products.append(entry)
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    try:
+        _walk(json.loads(text))
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
+
+    if not products:
+        for pid in _MERCARI_ID_RE.findall(text):
+            products.append({"id": pid, "name": "", "price": None, "description": ""})
+
+    seen: set[str] = set()
+    out: list[dict] = []
+    for entry in products:
+        pid = entry.get("id")
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        out.append(entry)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _format_found_candidates_message(products: list[dict]) -> str:
+    ids = [p["id"] for p in products]
+    preview = ", ".join(f"`{i}`" for i in ids[:5])
+    extra = "" if len(ids) <= 5 else f" (+{len(ids) - 5} more)"
+    return (
+        f"Found {len(ids)} candidate(s): {preview}{extra}\n"
+        f"<!--PRODUCTS:{json.dumps(products)}-->"
+    )
 
 
 class ExecutionCrewAgent:
@@ -92,7 +163,11 @@ class ExecutionCrewAgent:
             """Translate CrewAI step objects into human-readable messages."""
             step_type = type(step).__name__
             if step_type == "ToolResult":
-                return  # Skip raw results
+                raw_result = getattr(step, "result", "") or ""
+                products = _extract_products_from_text(raw_result)
+                if products:
+                    _push(_format_found_candidates_message(products))
+                return  # Skip non-product ToolResult content
             tool = getattr(step, "tool", None)
             raw_input = getattr(step, "tool_input", None)
             inputs = {}

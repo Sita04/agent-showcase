@@ -34,7 +34,7 @@ class DefaultConfig:
     EMBEDDER_MODEL: str = "text-embedding-005"
     
     # Agent Settings
-    AGENT_TEMPERATURE: float = 1.0
+    AGENT_TEMPERATURE: float = 0.0
     AGENT_MAX_TOKENS: int = 4096
     MAX_REASONING_ATTEMPTS: int = 3
     

@@ -31,11 +31,31 @@ You do NOT execute orders yourself. You have no direct access to the database. Y
 REPORT_GENERATOR_PROMPT = """You are the Global Retail IT Planning Agent.
 The Logistics Execution Swarm has just returned the results of a procurement task.
 
-Task Objective: {objective}
+Original Task Objective: {objective}
+Re-planning Context: {replan_context}
+Effective Item Description Sent To Sourcing: {effective_item}
 Worker Execution Result: {execution_result}
 
 Your job is to synthesize this raw execution result into a clean, professional, high-level "Final Report" suitable for the Global Strategy Dashboard.
-Keep it concise, highlight the total cost, the Purchase Order ID, and whether it was a SUCCESS or FAILURE."""
+
+CRITICAL EVALUATION RULES:
+- If "Re-planning Context" indicates that the original item was intentionally
+  broadened by the Re-Planner, evaluate the procured product against the
+  EFFECTIVE item description, NOT the original objective text. Broadening is
+  an intentional, designed-in fallback: when the original SKU is unavailable
+  or fictional, the Re-Planner replaces it with a generic category, and a
+  successful match against the broadened description IS a successful outcome.
+- In that case, do NOT use phrases like "does not match", "do not match",
+  "did not match", "wrong item", or "incorrect item" -- the procurement is
+  a deliberate substitute and the upstream Control Room treats those phrases
+  as a retryable failure signal. Instead, frame it transparently: e.g.
+  "Sourced as a substitute for the unavailable original SKU."
+- If broadening did NOT happen (Re-planning Context says "none") and the
+  procured item is clearly a different product category from the objective,
+  flag it as a failed match.
+
+Keep the report concise. Always highlight the total cost, the Purchase Order
+ID, and whether the outcome is SUCCESS or FAILURE."""
 
 SECURITY_REPORT_PROMPT = """You are the Global Retail IT Planning Agent.
 A request was received that violated the security policy enforced by Google Agent Engine's Identity Shield.
@@ -83,14 +103,38 @@ EXECUTOR_TASK_PROMPTS = {
             1. Use the 'search_products' tool with dataset_id='mercari1m_mm2'
                using the description as-is. Do NOT rephrase, simplify, or
                broaden the query -- search for what was requested.
-            2. Filter out any items that are clearly irrelevant or over the
-               budget of ${max_budget}.
-            3. If at least one candidate is a close semantic match for
+            2. For each candidate, READ BOTH the 'name' and the 'description'
+               fields returned by the tool. Do not rely on the title alone --
+               sellers often write generic titles, and the real product
+               category, condition, and accessories are spelled out in the
+               description. Use the description to confirm the item actually
+               IS the requested product (a finished, working unit of the
+               right category), not just a title that contains the same
+               words.
+            3. Filter out items that fail any of these tests:
+               - Price is over the budget of ${max_budget}.
+               - The item is a replacement part, component, accessory, case,
+                 cover, mount, stand, cable, or repair kit when the request
+                 is for a finished standalone product. (For example, when
+                 the request is for a 'monitor', exclude monitor stands,
+                 monitor arms, replacement LCD panels, and screen protectors.)
+               - The item is clearly a different product category from what
+                 was requested (e.g. a phone screen when a computer monitor
+                 was asked for).
+               - The description reveals the item is broken, parts-only,
+                 incomplete, or sold as a bundle of mixed unrelated goods
+                 when a single working unit was requested.
+            4. If at least one candidate is a close semantic match for
                '{item_description}', return the top 3 close matches with ID,
-               Name, Price, and a brief 'Match Reason'.
-            4. If NO candidate is a close match (e.g., the catalog only
-               returns unrelated items), do NOT propose a substitute and do
-               NOT issue a second broader query. Instead return exactly:
+               Name, Price, and a brief 'Match Reason' that cites SPECIFIC
+               evidence from the description (e.g. "27-inch IPS panel,
+               1440p, HDMI/DisplayPort, working condition per seller") to
+               prove the item is the finished product the user wants -- not
+               a part, accessory, or broken unit.
+            5. If NO candidate is a close match (e.g., the catalog only
+               returns unrelated items, or only parts/accessories), do NOT
+               propose a substitute and do NOT issue a second broader query.
+               Instead return exactly:
                "NO_MATCH: catalog does not carry a close match for
                '{item_description}'."
                The Re-Planner will broaden the query if appropriate.

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scale Agents Control Room Dashboard</title>
-    <link rel="stylesheet" href="style.css?v=1.42">
+    <link rel="stylesheet" href="style.css?v=1.48">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -15,7 +15,7 @@
         <aside class="sidebar">
             <header>
                 <h1>Scale Agents</h1>
-                <div class="subtitle">Control Room Dashboard v1.42</div>
+                <div class="subtitle">Control Room Dashboard v1.45</div>
             </header>
             
             <div class="orchestration-graph">
@@ -71,6 +71,10 @@
                     <input type="text" id="user-input" placeholder="Enter inventory alert or logistics objective...">
                     <button id="send-btn" class="send-btn" onclick="if(window.handleDispatchClick) { window.handleDispatchClick(); } else { alert('JS not loaded'); }">Dispatch</button>
                 </div>
+                <div class="data-credit" aria-label="Data attribution">
+                    Product data provided courtesy of
+                    <a href="https://www.mercari.com/" target="_blank" rel="noopener noreferrer">Mercari</a>.
+                </div>
             </div>
         </main>
     </div>
@@ -112,7 +116,23 @@
         </div>
     </section>
 
-    <script>console.log('[DEBUG] v1.41 HTML Loaded');</script>
-    <script src="app.js?v=1.42"></script>
+    <div id="product-modal" class="product-modal hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="product-modal-title">
+        <div class="product-modal-card" role="document">
+            <button type="button" class="product-modal-close" data-close-modal aria-label="Close product details">×</button>
+            <img class="product-modal-image" src="" alt="">
+            <div class="product-modal-body">
+                <h3 id="product-modal-title" class="product-modal-title"></h3>
+                <div class="product-modal-price"></div>
+                <p class="product-modal-description"></p>
+                <div class="product-modal-credit">
+                    Product data provided courtesy of
+                    <a href="https://www.mercari.com/" target="_blank" rel="noopener noreferrer">Mercari</a>.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>console.log('[DEBUG] v1.45 HTML Loaded');</script>
+    <script src="app.js?v=1.48"></script>
 </body>
 </html>
