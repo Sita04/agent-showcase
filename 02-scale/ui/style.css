@@ -633,6 +633,18 @@ input[type="text"]:focus {
     color: #1d4ed8;
 }
 
+.explainer-cuj-guide button.reset {
+    margin-left: auto;
+    border-color: rgba(244, 63, 94, 0.45);
+    color: #be123c;
+    background: rgba(244, 63, 94, 0.06);
+}
+
+.explainer-cuj-guide button.reset:hover {
+    border-color: #e11d48;
+    color: #e11d48;
+}
+
 .explainer-input-row {
     display: flex;
     gap: 0.5rem;

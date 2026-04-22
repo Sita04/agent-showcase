@@ -1,5 +1,5 @@
-// Scale Agents Dashboard Logic v1.41 - Per-tab session_id for parallel demos
-console.log('[DEBUG] Script v1.41 starting load...');
+// Scale Agents Dashboard Logic v1.42 - Default-on narration + Reset button
+console.log('[DEBUG] Script v1.42 starting load...');
 
 // Global state
 //
@@ -35,7 +35,11 @@ let explainerChunkQueue = [];
 let lastExplainerEventReply = '';
 let activeCuj = null;
 let completedCujIds = new Set();
-let ttsEnabled = false;
+// Narration on by default — the AudioContext stays suspended until the
+// first user gesture (browser autoplay policy), but the toggle reflects
+// the intended state and audio kicks in as soon as the user clicks
+// anywhere (Dispatch, a CUJ button, etc.).
+let ttsEnabled = true;
 let liveSocket = null;
 let liveSocketConnecting = null;
 let liveTurnQueue = Promise.resolve();
@@ -939,6 +943,22 @@ function handleDispatchClick() {
     }
 }
 
+function resetSession() {
+    // If a workflow is mid-flight, abort the SSE so the server-side queue
+    // is cleaned up before the page goes away.
+    if (isDispatching) {
+        try { stopWorkflow(); } catch (_) {}
+    }
+    // Drop the per-tab session_id so the next load gets a fresh one (the
+    // dashboard treats it as a brand-new browser tab; the Live API session
+    // also resets because the WS reconnects under a new session_id).
+    try { sessionStorage.removeItem('dashboard_session_id'); } catch (_) {}
+    // Close the explainer WS proactively — reload would tear it down
+    // anyway, but this stops the live audio quickly.
+    try { if (liveSocket) liveSocket.close(); } catch (_) {}
+    window.location.reload();
+}
+
 // Expose globally
 window.sendMessage = sendMessage;
 window.handleDispatchClick = handleDispatchClick;
@@ -990,8 +1010,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const ttsToggle = document.getElementById('tts-toggle');
     if (ttsToggle) {
-        ttsToggle.innerHTML = TTS_ICON_OFF;
         ttsToggle.addEventListener('click', () => setTtsEnabled(!ttsEnabled));
+    }
+    // Reflect the default-on state in the icon. ensureLiveAudioCtx still
+    // requires a user gesture to actually play sound (browser policy), but
+    // the toggle should match the variable from the start.
+    setTtsEnabled(ttsEnabled);
+
+    const resetBtn = document.getElementById('reset-session-btn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetSession);
     }
 
     updateExplainerCujButtons();
