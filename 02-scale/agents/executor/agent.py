@@ -62,12 +62,24 @@ class ExecutionCrewAgent:
 
         status_url = os.environ.get("CONTROL_ROOM_STATUS_URL", "")
 
+        # The planner forwards the dashboard tab's session_id in the input
+        # envelope so every push from the crew routes to the right per-tab
+        # queue. Without this, the dashboard's per-session router drops
+        # executor bubbles into the unrouted "" key.
+        params = json.loads(input)
+        session_id = str(params.get("session_id", "") or "")
+
         def _push(msg: str, name: str = "execution", role: str = "executor"):
             if status_url:
                 try:
                     requests.post(
                         status_url,
-                        data={"name": name, "text": msg, "role": role},
+                        data={
+                            "name": name,
+                            "text": msg,
+                            "role": role,
+                            "session_id": session_id,
+                        },
                         timeout=5,
                     )
                 except Exception:
@@ -110,7 +122,6 @@ class ExecutionCrewAgent:
                 return  # No tool, skip
             _push(msg)
 
-        params = json.loads(input)
         crew = self._crew_class()
         result = crew.run(
             task_description=params.get("task_description", "Unknown Item"),

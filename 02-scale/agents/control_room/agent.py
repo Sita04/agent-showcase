@@ -1,5 +1,4 @@
 import asyncio
-import contextvars
 import httpx
 import uuid
 import json
@@ -19,9 +18,34 @@ CONTROL_ROOM_STATUS_URL = os.environ.get("CONTROL_ROOM_STATUS_URL", "")
 # JSON envelope (AE path). emit_status / emit_final_report read it to route
 # events to the right browser tab so concurrent demos don't see each other's
 # bubbles.
-current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "current_session_id", default=""
-)
+#
+# Wrapped in a class instead of using a bare contextvars.ContextVar because
+# Agent Engine deploys cloudpickle this module's globals when serializing the
+# @node-decorated workflow function, and ContextVar is a C-level object that
+# cloudpickle can't serialize. The underlying var is lazy so the class
+# attribute is None at pickle time on the deploy host.
+class _SessionContextVar:
+    _var = None
+
+    @classmethod
+    def _ensure(cls):
+        if cls._var is None:
+            import contextvars
+            cls._var = contextvars.ContextVar(
+                "current_session_id", default=""
+            )
+        return cls._var
+
+    @classmethod
+    def get(cls) -> str:
+        return cls._ensure().get()
+
+    @classmethod
+    def set(cls, value: str) -> None:
+        cls._ensure().set(value)
+
+
+current_session_id = _SessionContextVar
 
 # In-process per-session queues. The dashboard server reads from these (one
 # queue per active browser tab). Empty key "" is reserved for legacy callers

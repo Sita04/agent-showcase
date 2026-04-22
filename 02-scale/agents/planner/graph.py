@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import asyncio
-import contextvars
 import json
 import logging
 import os
@@ -47,9 +46,32 @@ logger = logging.getLogger("PlannerAgent")
 # Per-dispatch session id, set by the A2A executor from Message.metadata so
 # every status push the planner makes carries the right id back to the
 # dashboard's per-session queue (and therefore the right browser tab).
-current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "planner_session_id", default=""
-)
+#
+# Wrapped in a class for the same reason as the Control Room agent: AE
+# deploys cloudpickle this module's globals via the LangGraph node closures,
+# and a bare contextvars.ContextVar isn't picklable.
+class _SessionContextVar:
+    _var = None
+
+    @classmethod
+    def _ensure(cls):
+        if cls._var is None:
+            import contextvars
+            cls._var = contextvars.ContextVar(
+                "planner_session_id", default=""
+            )
+        return cls._var
+
+    @classmethod
+    def get(cls) -> str:
+        return cls._ensure().get()
+
+    @classmethod
+    def set(cls, value: str) -> None:
+        cls._ensure().set(value)
+
+
+current_session_id = _SessionContextVar
 
 
 def _push_to_dashboard(
@@ -222,8 +244,11 @@ class PlannerNodes:
 
         try:
             if self.crew_engine is not None:
-                # Call the Execution Crew on Agent Engine using ADK 2.0 session API
+                # Call the Execution Crew on Agent Engine using ADK 2.0 session API.
+                # session_id rides in the same envelope so the crew's
+                # /api/push_status callbacks land in the right per-tab queue.
                 input_payload = json.dumps({
+                    "session_id": sid_snapshot,
                     "task_description": task_description,
                     "budget": budget,
                     "quantity": quantity,
