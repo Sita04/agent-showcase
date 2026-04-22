@@ -68,18 +68,42 @@ class PlanningAgent:
         event loop, so we use nest_asyncio to allow nested asyncio.run().
 
         Args:
-            input: The objective string (e.g., an inventory alert).
+            input: The objective string, or a JSON envelope
+                ``{"session_id": "...", "objective": "..."}`` so the
+                planner's status pushes carry the dashboard session_id
+                back to the right browser tab. Plain strings are
+                accepted unchanged.
 
         Returns:
             The final report from the planner.
         """
         import asyncio
+        import json
         import nest_asyncio
         nest_asyncio.apply()
         try:
             from .state import PlanState
+            from .graph import current_session_id
         except ImportError:
             from state import PlanState
-        initial_state: PlanState = {"objective": input}
+            from graph import current_session_id
+
+        # Unwrap the dashboard envelope if present so the per-tab
+        # session_id propagates into _push_to_dashboard via the contextvar.
+        objective = input
+        session_id = ""
+        stripped = (input or "").lstrip()
+        if stripped.startswith("{"):
+            try:
+                envelope = json.loads(stripped)
+                if isinstance(envelope, dict) and "objective" in envelope:
+                    objective = str(envelope["objective"])
+                    session_id = str(envelope.get("session_id", "") or "")
+            except (json.JSONDecodeError, ValueError):
+                pass
+        if session_id:
+            current_session_id.set(session_id)
+
+        initial_state: PlanState = {"objective": objective}
         final_state = asyncio.run(self._graph.ainvoke(initial_state))
         return final_state.get("final_report", "No report generated.")

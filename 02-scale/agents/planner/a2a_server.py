@@ -95,7 +95,11 @@ class PlannerAgentExecutor(AgentExecutor):
                     name="planner_step",
                 )
                 _push_to_dashboard("Calling remote Planning Agent (non-streaming)...", "system")
-                response = await asyncio.to_thread(planner_engine.query, input=objective)
+                # Wrap with the same JSON envelope the dashboard uses so
+                # the AE planner can recover session_id from a single
+                # string payload (Agent Engine's query() takes one arg).
+                envelope = json.dumps({"session_id": sid, "objective": objective})
+                response = await asyncio.to_thread(planner_engine.query, input=envelope)
                 final_report = response
 
                 _push_to_dashboard("Cloud-hosted Planning Agent completed.", "system")
