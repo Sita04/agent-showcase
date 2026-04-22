@@ -1,8 +1,24 @@
-// Scale Agents Dashboard Logic v1.40 - One Live API session per browser session
-console.log('[DEBUG] Script v1.38 starting load...');
+// Scale Agents Dashboard Logic v1.41 - Per-tab session_id for parallel demos
+console.log('[DEBUG] Script v1.41 starting load...');
 
 // Global state
-let currentSessionId = 'demo_session_1';
+//
+// Per-tab dashboard session id. Stored in sessionStorage so a reload keeps
+// the same id (continuing the same SSE stream / per-session queue on the
+// server) but a fresh tab gets a fresh id, enabling parallel demo sessions.
+const dashboardSessionId = (() => {
+    const KEY = 'dashboard_session_id';
+    let id = null;
+    try { id = sessionStorage.getItem(KEY); } catch (_) {}
+    if (!id) {
+        id = (crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+        try { sessionStorage.setItem(KEY, id); } catch (_) {}
+    }
+    return id;
+})();
+console.log('[DEBUG] dashboard_session_id:', dashboardSessionId);
 let thinkingIndicator = null;
 let lastMessageText = '';
 let currentBubble = null;   // DOM element of the active bubble
@@ -132,6 +148,7 @@ async function sendMessage() {
     try {
         const formData = new FormData();
         formData.append('prompt', text);
+        formData.append('session_id', dashboardSessionId);
 
         console.log('[DEBUG] Fetching /api/chat...');
         const response = await fetch('/api/chat', {
@@ -469,7 +486,7 @@ function getLiveSocket() {
     if (liveSocketConnecting) return liveSocketConnecting;
     liveSocketConnecting = new Promise((resolve, reject) => {
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${proto}//${window.location.host}/api/explainer/live`);
+        const ws = new WebSocket(`${proto}//${window.location.host}/api/explainer/live?session_id=${encodeURIComponent(dashboardSessionId)}`);
         ws.binaryType = 'arraybuffer';
         ws.onopen = () => {
             liveSocket = ws;

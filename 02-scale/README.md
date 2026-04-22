@@ -382,7 +382,7 @@ curl https://scale-control-room-761793285222.us-central1.run.app/api/health
 curl https://scale-planner-a2a-761793285222.us-central1.run.app/.well-known/agent.json
 ```
 
-> **Important:** Always warm up Agent Engine after any redeployment. Run prompts one at a time -- the in-memory dashboard queue supports one session.
+> **Important:** Always warm up Agent Engine after any redeployment. The dashboard supports parallel demo sessions: each browser tab gets its own `session_id`, threaded through `/api/chat` → Control Room (JSON envelope) → Planner (A2A `Message.metadata`), and status pushes route back to the per-session SSE queue.
 
 ### Live Demo Endpoints
 
@@ -464,6 +464,5 @@ The CUJ 2 security path works by probing for `aiplatform.indexes.delete` permiss
 
 * **BYOC blocked.** A direct Agent Engine `container_spec.image_uri` probe still fails with *"One or more users named in the policy do not belong to a permitted customer."* The CrewAI deployment uses the patched-wheel source path instead.
 * **Agent Engine cold starts take 3-5 minutes.** Always warm up after deploy; Cloud Run timeouts are set to 600s to accommodate.
-* **Single-session dashboard queue.** Run prompts one at a time -- the in-memory dashboard queue supports one session.
 * **Executor bubbles depend on planner env wiring.** The planner bridge calls the Agent-Engine planner via non-streaming `query()`, so per-step CrewAI updates only surface if the Agent-Engine planner itself was deployed with a valid `CONTROL_ROOM_STATUS_URL`. Re-deploy the planner with the env var set (step 2 in the deploy sequence) to enable executor visibility.
 * **Execution runtime substitution.** The execution runtime uses direct `mcpadapt` for the remote vector-search MCP server and in-process mock OMS tools instead of the stdio-backed mock OMS MCP subprocess.

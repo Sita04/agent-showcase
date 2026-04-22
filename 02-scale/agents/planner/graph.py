@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -43,21 +44,40 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("PlannerAgent")
 
 
-def _push_to_dashboard(msg: str, name: str = "execution", role: str = "planner"):
+# Per-dispatch session id, set by the A2A executor from Message.metadata so
+# every status push the planner makes carries the right id back to the
+# dashboard's per-session queue (and therefore the right browser tab).
+current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "planner_session_id", default=""
+)
+
+
+def _push_to_dashboard(
+    msg: str,
+    name: str = "execution",
+    role: str = "planner",
+    session_id: str | None = None,
+):
     """Push a status update directly to the Control Room dashboard.
 
     This bypasses the A2A artifact mechanism which does not stream
     intermediate updates when using ``message/send``.
+
+    ``session_id`` may be passed explicitly so callers running in worker
+    threads (e.g. CrewAI step callbacks) can supply a snapshot — the
+    contextvar is per-task and is not always inherited by threads CrewAI
+    spawns internally. If omitted we read the contextvar.
     """
     try:
         import requests
+        sid = session_id if session_id is not None else current_session_id.get()
         status_url = os.environ.get(
             "CONTROL_ROOM_STATUS_URL",
             "http://127.0.0.1:8000/api/push_status",
         )
         requests.post(
             status_url,
-            data={"name": name, "text": msg, "role": role},
+            data={"name": name, "text": msg, "role": role, "session_id": sid},
             timeout=1.0,
         )
     except Exception as e:
@@ -152,13 +172,18 @@ class PlannerNodes:
         budget = per_unit_budget * quantity
         loop = asyncio.get_running_loop()
 
+        # Snapshot the dashboard session id while we're still on the asyncio
+        # task — CrewAI spawns its own worker threads for tool/step callbacks
+        # which may not inherit the contextvar, so we pass it explicitly.
+        sid_snapshot = current_session_id.get()
+
         async def publish_execution_update(msg: str, name: str = "execution"):
-            _push_to_dashboard(msg, name=name, role="executor")
+            _push_to_dashboard(msg, name=name, role="executor", session_id=sid_snapshot)
             if self.on_update:
                 await self.on_update(msg)
 
         def schedule_execution_update(msg: str, name: str = "execution") -> None:
-            _push_to_dashboard(msg, name=name, role="executor")
+            _push_to_dashboard(msg, name=name, role="executor", session_id=sid_snapshot)
             if not self.on_update:
                 return
             # Heartbeat / step callbacks fire from worker threads. The captured

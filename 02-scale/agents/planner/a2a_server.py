@@ -63,8 +63,22 @@ class PlannerAgentExecutor(AgentExecutor):
         await event_queue.enqueue_event(task)
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 
+        # Recover the dashboard session_id the Control Room embedded in the
+        # A2A Message.metadata. Setting the contextvar here propagates it to
+        # all status pushes the planner emits during this dispatch, so they
+        # land in the right browser tab's per-session queue.
+        sid = ""
         try:
-            print(f"\n🚀 [A2A Executor] Triggering LangGraph with objective: '{objective}'")
+            metadata = getattr(context.message, "metadata", None) or {}
+            if isinstance(metadata, dict):
+                sid = str(metadata.get("session_id", "") or "")
+        except Exception:
+            pass
+        from agents.planner.graph import current_session_id as _planner_session_id
+        _planner_session_id.set(sid)
+
+        try:
+            print(f"\n🚀 [A2A Executor] Triggering LangGraph with objective: '{objective}' (sid={sid})")
             # Push directly to dashboard — A2A message/send doesn't stream artifacts
             from agents.planner.graph import _push_to_dashboard
             _push_to_dashboard("Setting up the LangGraph planning workflow...", "system")

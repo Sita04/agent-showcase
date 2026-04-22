@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import httpx
 import uuid
 import json
@@ -12,9 +13,28 @@ A2A_SERVER_URL = os.environ.get("PLANNER_AGENT_URL", "http://127.0.0.1:8080")
 CONTROL_ROOM_STATUS_URL = os.environ.get("CONTROL_ROOM_STATUS_URL", "")
 
 # Side-channel for Dashboard Updates
-# This allows us to send real-time progress to the UI without
-# fighting ADK 2.0's strict node return types.
-dashboard_queue = asyncio.Queue()
+#
+# Per-dispatch session id. The dashboard server (in-process path) sets this
+# before invoking the workflow; the workflow's first node sets it from the
+# JSON envelope (AE path). emit_status / emit_final_report read it to route
+# events to the right browser tab so concurrent demos don't see each other's
+# bubbles.
+current_session_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "current_session_id", default=""
+)
+
+# In-process per-session queues. The dashboard server reads from these (one
+# queue per active browser tab). Empty key "" is reserved for legacy callers
+# without a session id; the dashboard ignores it.
+dashboard_queues: dict[str, asyncio.Queue] = {}
+
+
+def get_or_create_queue(session_id: str) -> asyncio.Queue:
+    q = dashboard_queues.get(session_id)
+    if q is None:
+        q = asyncio.Queue()
+        dashboard_queues[session_id] = q
+    return q
 
 
 async def emit_status(name: str, text: str, role: str = "control_room"):
@@ -22,14 +42,20 @@ async def emit_status(name: str, text: str, role: str = "control_room"):
     # in-process queue otherwise. Doing both duplicates every status event
     # when the dashboard runs in-process with the URL set for sibling
     # processes (e.g. the Planner A2A bridge).
+    session_id = current_session_id.get()
     if CONTROL_ROOM_STATUS_URL:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(CONTROL_ROOM_STATUS_URL, data={"name": name, "text": text, "role": role})
+                await client.post(
+                    CONTROL_ROOM_STATUS_URL,
+                    data={"name": name, "text": text, "role": role, "session_id": session_id},
+                )
         except Exception as e:
             print(f"[Control Room] Failed to push status to {CONTROL_ROOM_STATUS_URL}: {e}")
     else:
-        await dashboard_queue.put({"type": "status", "name": name, "text": text, "role": role})
+        await get_or_create_queue(session_id).put(
+            {"type": "status", "name": name, "text": text, "role": role}
+        )
 
 
 async def emit_final_report(status: str, report: str):
@@ -39,6 +65,7 @@ async def emit_final_report(status: str, report: str):
     CONTROL_ROOM_STATUS_URL is set (the only path that works on Agent
     Engine); otherwise pushes directly to the in-process queue.
     """
+    session_id = current_session_id.get()
     if CONTROL_ROOM_STATUS_URL:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -46,12 +73,17 @@ async def emit_final_report(status: str, report: str):
                 # server translates this into an adk_event for the UI.
                 await client.post(
                     CONTROL_ROOM_STATUS_URL,
-                    data={"name": "final_report", "text": report, "role": f"final_report:{status}"},
+                    data={
+                        "name": "final_report",
+                        "text": report,
+                        "role": f"final_report:{status}",
+                        "session_id": session_id,
+                    },
                 )
         except Exception as e:
             print(f"[Control Room] Failed to push final report to {CONTROL_ROOM_STATUS_URL}: {e}")
     else:
-        await dashboard_queue.put({
+        await get_or_create_queue(session_id).put({
             "type": "adk_event",
             "event_type": "WorkflowComplete",
             "node_name": "control_room_orchestrator",
@@ -145,18 +177,48 @@ def create_replanner_agent(attempt: int):
         """
     )
 
+def _unwrap_envelope(node_input: str) -> tuple[str, str]:
+    """Strip the dashboard's session-id envelope off the user objective.
+
+    The dashboard sends the prompt as
+    ``{"session_id": "...", "objective": "..."}`` so the orchestrator can
+    route status events back to the right browser tab. Plain-text input is
+    accepted unchanged so direct A2A callers (without a dashboard) still
+    work.
+    """
+    if not isinstance(node_input, str):
+        return "", str(node_input)
+    stripped = node_input.lstrip()
+    if not stripped.startswith("{"):
+        return "", node_input
+    try:
+        envelope = json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return "", node_input
+    if not isinstance(envelope, dict) or "objective" not in envelope:
+        return "", node_input
+    return str(envelope.get("session_id", "")), str(envelope["objective"])
+
+
 @node(name="control_room_orchestrator", rerun_on_resume=True)
 async def control_room_orchestrator(ctx: Context, node_input: str):
     """
     Main Orchestrator Node.
     Uses dynamic code routing to handle the A2A delegation and CUJ 3 re-planning loops.
     """
+    session_id, current_objective = _unwrap_envelope(node_input)
+    if session_id:
+        # AE path: the dashboard's process can't share a contextvar with the
+        # AE container, so the workflow re-establishes the session id from
+        # the prompt envelope. The local in-process path also benefits — one
+        # source of truth either way.
+        current_session_id.set(session_id)
+
     max_attempts = 2
     attempt = 1
-    current_objective = node_input
     is_success = False
     should_retry = False
-    
+
     print(f"\n🚨 [Control Room] Received Alert: {current_objective}")
     await emit_status("system", f"Received request: {current_objective}")
 
@@ -179,7 +241,11 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
                 "message": {
                     "message_id": msg_id,
                     "parts": [{"text": current_objective}],
-                    "role": "user"
+                    "role": "user",
+                    # A2A Message.metadata: the Planner reads this and sets
+                    # its own contextvar so its status pushes carry the same
+                    # session_id back to the dashboard.
+                    "metadata": {"session_id": current_session_id.get()},
                 }
             }
         }

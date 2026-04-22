@@ -70,7 +70,12 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
 from google.genai.types import Content as GenAIContent, Part as GenAIPart
 
-from agents.control_room.agent import ControlRoomAgent, dashboard_queue
+from agents.control_room.agent import (
+    ControlRoomAgent,
+    current_session_id,
+    dashboard_queues,
+    get_or_create_queue,
+)
 
 # A2A Server Imports
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -368,39 +373,54 @@ async def explainer_live(ws: WebSocket):
         except Exception:
             pass
 
-def _enqueue_dashboard_push(name: str, text: str, role: str) -> None:
+def _enqueue_dashboard_push(session_id: str, name: str, text: str, role: str) -> None:
     """Translate a side-channel push into the right dashboard event shape."""
+    queue = get_or_create_queue(session_id)
     if role.startswith("final_report"):
         # role looks like "final_report:Success" / "final_report:Blocked" / "final_report:Failed"
         _, _, status = role.partition(":")
-        dashboard_queue.put_nowait({
+        queue.put_nowait({
             "type": "adk_event",
             "event_type": "WorkflowComplete",
             "node_name": "control_room_orchestrator",
             "output": {"status": status or "Success", "report": text},
         })
         return
-    dashboard_queue.put_nowait({"type": "status", "name": name, "text": text, "role": role})
+    queue.put_nowait({"type": "status", "name": name, "text": text, "role": role})
 
 
 @api_app.post("/push_status")
-async def push_status(name: str = Form(...), text: str = Form(...), role: str = Form("planner")):
+async def push_status(
+    name: str = Form(...),
+    text: str = Form(...),
+    role: str = Form("planner"),
+    session_id: str = Form(""),
+):
     """Callback for external processes to push updates to the dashboard."""
-    print(f"[DEBUG] Received status push: {name} - {text}")
-    _enqueue_dashboard_push(name, text, role)
+    print(f"[DEBUG] Received status push (sid={session_id}): {name} - {text}")
+    _enqueue_dashboard_push(session_id, name, text, role)
     return {"status": "ok"}
 
 @api_app.post("/chat")
-async def chat(prompt: Optional[str] = Form(None)):
+async def chat(
+    prompt: Optional[str] = Form(None),
+    session_id: str = Form(...),
+):
     user_id = "admin"
 
-    # Clear queue
-    while not dashboard_queue.empty():
+    # Bind the contextvar so emit_status / emit_final_report on the in-process
+    # path route into this tab's queue. The AE path uses the JSON envelope
+    # below to recover the same id on the other side of the wire.
+    current_session_id.set(session_id)
+    queue = get_or_create_queue(session_id)
+
+    # Drain any stale leftovers from a previous dispatch in the same tab.
+    while not queue.empty():
         try:
-            dashboard_queue.get_nowait()
+            queue.get_nowait()
         except asyncio.QueueEmpty:
             break
-    
+
     # Create fresh session if running locally
     session = None
     if _runner:
@@ -408,15 +428,16 @@ async def chat(prompt: Optional[str] = Form(None)):
             app_name="control_room_app",
             user_id=user_id
         )
-    
-    parts = []
-    if prompt:
-        parts.append(GenAIPart.from_text(text=prompt))
-    if not parts:
+
+    if not prompt:
         return {"status": "error", "reply": "Empty message received"}
 
-    new_message = GenAIContent(role="user", parts=parts)
-    
+    # Wrap the user objective in a JSON envelope so the Control Room can
+    # recover session_id even when running on Agent Engine (a separate
+    # process where contextvars don't propagate from the dashboard).
+    envelope = json.dumps({"session_id": session_id, "objective": prompt})
+    new_message = GenAIContent(role="user", parts=[GenAIPart.from_text(text=envelope)])
+
     async def event_generator():
         # Per-request timeout for the upstream Agent Engine call. Cold starts can
         # take 3-5 minutes (see README), so allow ample headroom but bound it.
@@ -428,25 +449,25 @@ async def chat(prompt: Optional[str] = Form(None)):
                     async with asyncio.timeout(AGENT_ENGINE_TIMEOUT_S):
                         # Call remote agent on Agent Engine using ADK 2.0 session API
                         remote_session = await control_room_engine.async_create_session(user_id=user_id)
-                        session_id = remote_session["id"]
+                        ae_session_id = remote_session["id"]
 
                         async for event in control_room_engine.async_stream_query(
                             user_id=user_id,
-                            session_id=session_id,
-                            message=prompt,
+                            session_id=ae_session_id,
+                            message=envelope,
                         ):
                             # Handle remote events and pipe to dashboard
                             parts = event.get("parts", [])
                             for part in parts:
                                 if "text" in part:
-                                    await dashboard_queue.put({
+                                    await queue.put({
                                         "type": "status",
                                         "name": "Control Room",
                                         "text": part["text"],
                                         "role": "control_room"
                                     })
                                 elif "function_call" in part:
-                                    await dashboard_queue.put({
+                                    await queue.put({
                                         "type": "status",
                                         "name": "Control Room",
                                         "text": f"Calling tool: {part['function_call']['name']}",
@@ -467,28 +488,28 @@ async def chat(prompt: Optional[str] = Form(None)):
                         user_id=user_id,
                         new_message=new_message
                     ):
-                        await dashboard_queue.put({
+                        await queue.put({
                             "type": "adk_event",
                             "event_type": type(event).__name__,
                             "node_name": getattr(event, 'node_name', 'N/A'),
                         })
                 else:
-                    await dashboard_queue.put({"type": "status", "name": "error", "text": "No agent runner available."})
+                    await queue.put({"type": "status", "name": "error", "text": "No agent runner available."})
             except asyncio.CancelledError:
                 # Generator was closed (client disconnect). Don't enqueue further updates.
                 raise
             except asyncio.TimeoutError:
-                await dashboard_queue.put({
+                await queue.put({
                     "type": "status",
                     "name": "error",
                     "text": f"Agent Engine timed out after {AGENT_ENGINE_TIMEOUT_S}s",
                 })
             except Exception as e:
-                await dashboard_queue.put({"type": "status", "name": "error", "text": str(e)})
+                await queue.put({"type": "status", "name": "error", "text": str(e)})
             finally:
                 # Sentinel may fail if generator was cancelled; protect against double-fault.
                 try:
-                    await dashboard_queue.put(None)
+                    await queue.put(None)
                 except Exception:
                     pass
 
@@ -497,7 +518,7 @@ async def chat(prompt: Optional[str] = Form(None)):
         try:
             while True:
                 try:
-                    item = await asyncio.wait_for(dashboard_queue.get(), timeout=15.0)
+                    item = await asyncio.wait_for(queue.get(), timeout=15.0)
                     if item is None: break
                     yield f"data: {json.dumps(item)}\n\n"
                 except asyncio.TimeoutError:
@@ -510,6 +531,9 @@ async def chat(prompt: Optional[str] = Form(None)):
                     await agent_task
                 except (asyncio.CancelledError, Exception):
                     pass
+            # Drop the per-session queue so it doesn't leak across many tabs.
+            # The next dispatch in this tab re-creates it via get_or_create_queue.
+            dashboard_queues.pop(session_id, None)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -603,9 +627,14 @@ async def root_redirect():
     return RedirectResponse(url="/ui/")
 
 @combined_app.post("/push_status")
-async def push_status_root(name: str = Form(...), text: str = Form(...), role: str = Form("planner")):
-    print(f"[DEBUG] Received status push on root: {name} - {text}")
-    _enqueue_dashboard_push(name, text, role)
+async def push_status_root(
+    name: str = Form(...),
+    text: str = Form(...),
+    role: str = Form("planner"),
+    session_id: str = Form(""),
+):
+    print(f"[DEBUG] Received status push on root (sid={session_id}): {name} - {text}")
+    _enqueue_dashboard_push(session_id, name, text, role)
     return {"status": "ok"}
     
 combined_app.mount("/", a2a_app)
