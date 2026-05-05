@@ -98,3 +98,55 @@ gcloud run deploy "${SERVICE_NAME}" \
 
 echo ""
 echo "Control Room deployed to Cloud Run."
+
+# Post-deploy smoke check.
+#
+# Why this exists: /api/health returns a static {"status":"ok"} that
+# never touches control_room_engine, the bridge, or the Explainer Live
+# API. So a Cloud Run revision can deploy green and silently fail every
+# /api/chat call (e.g. April 2026 incident: a passive uv.lock bump
+# baked the broken google-cloud-aiplatform 1.146 SDK call surface into
+# the image; revision 00034-x5j served traffic for two weeks before
+# anyone noticed). This check actually drives a CUJ end-to-end and
+# exits non-zero if the SSE stream lacks a WorkflowComplete frame or
+# carries an error frame, so the deploy fails loud instead of going
+# green-on-broken.
+#
+# Skip with SKIP_SMOKE_CHECK=1 (e.g. first-time deploy before the AE
+# engine or A2A bridge exists, or air-gapped environments).
+if [[ "${SKIP_SMOKE_CHECK:-0}" == "1" ]]; then
+  echo ""
+  echo "SKIP_SMOKE_CHECK=1 set — skipping post-deploy smoke check."
+else
+  SERVICE_URL="$(gcloud run services describe "${SERVICE_NAME}" \
+    --project "${PROJECT_ID}" --region "${REGION}" --format='value(status.url)')"
+
+  echo ""
+  echo "=== Post-deploy smoke check ==="
+  echo "Driving CUJ 1 against ${SERVICE_URL}/api/chat (timeout 540s for AE cold start)..."
+
+  SMOKE_OUTPUT="$(mktemp -t scale-smoke.XXXXXX.txt)"
+  trap 'rm -f "${ENV_FILE}" "${SMOKE_OUTPUT}"' EXIT
+
+  if ! curl -sS -X POST "${SERVICE_URL}/api/chat" \
+        -F "prompt=Restock 2 Google Droid figures for the Tokyo office" \
+        -F "session_id=smoke-$(date +%s)" \
+        --max-time 540 > "${SMOKE_OUTPUT}" 2>&1; then
+    echo "❌ Smoke check FAILED — curl returned non-zero."
+    echo "----- output -----"
+    cat "${SMOKE_OUTPUT}"
+    exit 1
+  fi
+
+  ERROR_COUNT="$(grep -c '"name": "error"' "${SMOKE_OUTPUT}" || true)"
+  COMPLETE_COUNT="$(grep -c '"event_type": "WorkflowComplete"' "${SMOKE_OUTPUT}" || true)"
+
+  if [[ "${ERROR_COUNT}" != "0" ]] || [[ "${COMPLETE_COUNT}" == "0" ]]; then
+    echo "❌ Smoke check FAILED — error_frames=${ERROR_COUNT} workflow_complete_frames=${COMPLETE_COUNT}"
+    echo "----- last 10 frames -----"
+    tail -10 "${SMOKE_OUTPUT}"
+    exit 1
+  fi
+
+  echo "✅ Smoke check passed (WorkflowComplete=${COMPLETE_COUNT}, errors=${ERROR_COUNT})."
+fi

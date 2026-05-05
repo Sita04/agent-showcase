@@ -26,7 +26,15 @@ dependencies = [
     "httpx>=0.28.1",
     "a2a-server",
     "a2a-sdk>=0.3.25",
-    "google-cloud-aiplatform>=1.144",
+    # Tight band — patches only (1.146.x). 1.146 changed
+    # `client.agent_engines.get(...)` to return a thin AgentEngine handle
+    # without auto-wired session/query methods, and the lock file is part
+    # of the workspace (not member-scoped), so we can't pin a single
+    # transitive resolution from inside 02-scale alone. Keeping the
+    # constraint narrow is the only defense against a passive `uv sync`
+    # silently picking up the next API-breaking minor. Widen the upper
+    # bound only after explicitly re-validating against a newer minor.
+    "google-cloud-aiplatform>=1.146,<1.147",
 ]
 
 [dependency-groups]
