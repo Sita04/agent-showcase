@@ -58,10 +58,11 @@ else:
     CONTROL_ROOM_AGENT_ENGINE_ID = _env_engine_id
 
 control_room_engine = None
+vertexai_client = None
 if CONTROL_ROOM_AGENT_ENGINE_ID:
     print(f"Using remote Control Room Agent: {CONTROL_ROOM_AGENT_ENGINE_ID}")
-    client = vertexai.Client(project=PROJECT_ID, location=REGION)
-    control_room_engine = client.agent_engines.get(name=CONTROL_ROOM_AGENT_ENGINE_ID)
+    vertexai_client = vertexai.Client(project=PROJECT_ID, location=REGION)
+    control_room_engine = vertexai_client.agent_engines.get(name=CONTROL_ROOM_AGENT_ENGINE_ID)
 else:
     print("WARNING: CONTROL_ROOM_AGENT_ENGINE_ID not found. Falling back to local runner.")
 
@@ -447,17 +448,40 @@ async def chat(
             try:
                 if control_room_engine:
                     async with asyncio.timeout(AGENT_ENGINE_TIMEOUT_S):
-                        # Call remote agent on Agent Engine using ADK 2.0 session API
-                        remote_session = await control_room_engine.async_create_session(user_id=user_id)
-                        ae_session_id = remote_session["id"]
-
-                        async for event in control_room_engine.async_stream_query(
+                        # google-cloud-aiplatform >=1.146 returns a thin AgentEngine
+                        # resource handle from `agent_engines.get(...)` — the per-engine
+                        # `async_create_session` / `async_stream_query` methods that
+                        # earlier SDKs auto-wired no longer exist. Drive the same RPCs
+                        # via the manager surface instead.
+                        op = await vertexai_client.aio.agent_engines.sessions.create(
+                            name=CONTROL_ROOM_AGENT_ENGINE_ID,
                             user_id=user_id,
-                            session_id=ae_session_id,
-                            message=envelope,
+                            config={"wait_for_completion": True},
+                        )
+                        ae_session_id = op.response.name.rsplit("/", 1)[-1]
+
+                        async for raw_event in vertexai_client.agent_engines._async_stream_query(
+                            name=CONTROL_ROOM_AGENT_ENGINE_ID,
+                            config={
+                                "class_method": "async_stream_query",
+                                "input": {
+                                    "user_id": user_id,
+                                    "session_id": ae_session_id,
+                                    "message": envelope,
+                                },
+                            },
                         ):
-                            # Handle remote events and pipe to dashboard
-                            parts = event.get("parts", [])
+                            # _async_stream_query yields HttpResponse chunks whose
+                            # .body is a JSON-encoded ADK Event. Parse defensively
+                            # so an unexpected shape doesn't crash the dispatch.
+                            try:
+                                body = getattr(raw_event, "body", None)
+                                event = json.loads(body) if isinstance(body, str) else (raw_event if isinstance(raw_event, dict) else {})
+                            except (ValueError, TypeError):
+                                continue
+                            # ADK Events nest parts under .content; older shape had
+                            # them at the top level — try both.
+                            parts = event.get("parts") or event.get("content", {}).get("parts", []) or []
                             for part in parts:
                                 if "text" in part:
                                     await queue.put({
