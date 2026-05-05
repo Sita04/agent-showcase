@@ -212,6 +212,37 @@ Open [http://localhost:8080](http://localhost:8080) in your browser.
 
 > **Port conflicts:** if `8080` or `8081` are taken, pick any other free pair -- just keep them different and update both `PORT` (planner) and `PLANNER_AGENT_URL` (dashboard) so they match.
 
+### Running with the Control Room A2A Bridge (production parity)
+
+The two-terminal flow above runs the Control Room Workflow in-process inside the Dashboard — fast for iteration, but doesn't exercise the wire that production uses. To run the same A2A topology you'd see in Cloud Run, add a third terminal for the bridge.
+
+**Terminal 1** — Planner A2A (port 8081), as above.
+
+**Terminal 2** — Control Room A2A bridge (port 8082):
+```bash
+export PYTHONPATH=.
+export PORT=8082
+# Bridge runs the Control Room Workflow in-process and pushes per-step
+# Planner / Executor bubbles back to the dashboard.
+export CONTROL_ROOM_STATUS_URL=http://127.0.0.1:8080/api/push_status
+export PLANNER_AGENT_URL=http://127.0.0.1:8081
+uv run agents/control_room/a2a_server.py
+```
+
+**Terminal 3** — Dashboard (port 8080), pointing at the bridge:
+```bash
+export PYTHONPATH=.
+export PORT=8080
+export CONTROL_ROOM_A2A_URL=http://127.0.0.1:8082
+# CONTROL_ROOM_AGENT_ENGINE_ID is ignored when CONTROL_ROOM_A2A_URL is set,
+# but pin it to "local" so a stale deployment_metadata.json can't pull the
+# Dashboard onto the legacy SDK path mid-debug.
+export CONTROL_ROOM_AGENT_ENGINE_ID=local
+uv run app_server.py
+```
+
+The Dashboard logs `Using Control Room A2A bridge: http://127.0.0.1:8082` on startup — that's the signal you're on the bridge path. CUJ flows behave identically to the in-process mode, just routed through one extra hop.
+
 ### Alternate Run Modes
 
 **A2A discovery & invocation (registry-ready):** the Control Room is a fully-compliant A2A Host, discoverable via `/.well-known/agent-card.json` and invocable via JSON-RPC 2.0 `message/send`:
@@ -244,7 +275,7 @@ With both servers running and `CONTROL_ROOM_AGENT_ENGINE_ID=local` set on the da
 
 ## Deployment
 
-The full demo runs across **five** managed services:
+The full demo runs across **six** managed services:
 
 | Service | Runtime | Identity |
 | ------- | ------- | -------- |
@@ -252,9 +283,10 @@ The full demo runs across **five** managed services:
 | **Planning Agent** (LangGraph) | Agent Engine | `planning-agent-sa` |
 | **Control Room Workflow** (ADK 2.0) | Agent Engine | `execution-agent-sa` |
 | **Planner A2A bridge** | Cloud Run | `planning-agent-sa` |
+| **Control Room A2A bridge** | Cloud Run | `execution-agent-sa` |
 | **Control Room Dashboard** (UI) | Cloud Run | `control-room-sa` |
 
-The Planner A2A bridge wraps the Agent-Engine planner so the Control Room can talk to it via standard A2A JSON-RPC. The Dashboard is the user-facing entry point — it owns SSE / the Explainer Live API socket / static assets and delegates the ADK Control Room Workflow to its Agent-Engine instance via `CONTROL_ROOM_AGENT_ENGINE_ID`. Setting `CONTROL_ROOM_AGENT_ENGINE_ID=local` runs the Workflow in-process inside the Dashboard container instead — this is the **local development fallback**, not the production path.
+Both A2A bridges insulate the Dashboard from `google-cloud-aiplatform` SDK churn — the Dashboard speaks JSON-RPC over A2A, and each bridge owns the SDK-side plumbing for its respective agent. The Dashboard is the user-facing entry point — it owns SSE / the Explainer Live API socket / static assets and delegates the Control Room Workflow via `CONTROL_ROOM_A2A_URL` (recommended) or, for legacy deployments, directly to its Agent-Engine instance via `CONTROL_ROOM_AGENT_ENGINE_ID`. Setting `CONTROL_ROOM_AGENT_ENGINE_ID=local` and leaving `CONTROL_ROOM_A2A_URL` unset runs the Workflow in-process inside the Dashboard container — the local-only fallback.
 
 Key Cloud Run knobs:
 * `--concurrency 10` -- required so `/api/push_status` callbacks and the SSE stream share the same instance
@@ -263,9 +295,9 @@ Key Cloud Run knobs:
 
 ### End-to-End Deploy Order
 
-There is a chicken-and-egg dependency: the Planner A2A bridge needs the Dashboard URL (for status push-back), and the Dashboard needs the Planner A2A URL (for delegation). Resolve it by deploying the Dashboard with a known service name, computing its URL up front, then patching the Planner A2A's status URL in a second pass.
+There is a chicken-and-egg dependency: each bridge needs the Dashboard URL (for status push-back), and the Dashboard needs both bridge URLs (for delegation). Resolve it by deploying the Dashboard with a known service name, computing its URL up front, then patching each bridge's status URL in a second pass.
 
-The Control Room Workflow is deployed to Agent Engine alongside the Planner and Crew (step 3). The Dashboard then invokes it remotely via `CONTROL_ROOM_AGENT_ENGINE_ID`. For local development you can skip step 3 and set `CONTROL_ROOM_AGENT_ENGINE_ID=local` on the Dashboard to run the Workflow in-process — see [Local Development](#local-development) above.
+The Control Room Workflow can be deployed to Agent Engine (step 3) **and/or** wrapped in the Cloud Run A2A bridge (step 4b). The bridge is the recommended path going forward — it isolates the Dashboard from Vertex AI Agent Engine SDK changes and is the architecture the Dashboard uses when `CONTROL_ROOM_A2A_URL` is set. Step 3 remains supported as a legacy fallback (Dashboard reads `CONTROL_ROOM_AGENT_ENGINE_ID` and calls AE directly via SDK) and can be skipped if you commit to the bridge.
 
 ```bash
 # 0. Authenticate with your Googler corp account. The internal Python registry
@@ -310,10 +342,10 @@ PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.a
   CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status" \
   uv run scripts/deploy_to_agent_engine.py --control-room-only
 
-# 4. Deploy the Planner A2A bridge on Cloud Run (run from the 02-scale dir).
-#    PLANNING_AGENT_ENGINE_ID is auto-saved to deployment_metadata.json by
-#    step 2 — read it from there. CONTROL_ROOM_URL lets the bridge proxy
-#    status updates from the Agent-Engine planner to the Dashboard.
+# 4a. Deploy the Planner A2A bridge on Cloud Run (run from the 02-scale dir).
+#     PLANNING_AGENT_ENGINE_ID is auto-saved to deployment_metadata.json by
+#     step 2 — read it from there. CONTROL_ROOM_URL lets the bridge proxy
+#     status updates from the Agent-Engine planner to the Dashboard.
 PLANNING_AGENT_ENGINE_ID=$(python3 -c \
   "import json; print(json.load(open('deployment_metadata.json'))['planning_agent_engine_id'])")
 
@@ -321,16 +353,36 @@ PLANNING_AGENT_ENGINE_ID="${PLANNING_AGENT_ENGINE_ID}" \
   CONTROL_ROOM_URL="${DASHBOARD_URL}" \
   bash scripts/deploy_planner_a2a_cloud_run.sh
 
-# 5. Deploy the Control Room Dashboard on Cloud Run.
-#    PLANNER_AGENT_URL points at the bridge from step 4. CONTROL_ROOM_AGENT_ENGINE_ID
-#    is read from deployment_metadata.json by deploy_control_room_cloud_run.sh and
-#    forwarded into the Cloud Run env vars so the Dashboard invokes the AE-hosted
-#    Workflow from step 3 instead of running it in-process.
+# 4b. Deploy the Control Room A2A bridge on Cloud Run.
+#     Wraps the in-process Control Room Workflow as A2A — the Dashboard
+#     dispatches via JSON-RPC and never touches the Vertex AI Agent
+#     Engine SDK directly. PLANNER_AGENT_URL points at the bridge from
+#     4a so the Workflow can call the Planner. CONTROL_ROOM_URL feeds
+#     the same /api/push_status side-channel pattern as 4a.
 PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.app/" \
+  CONTROL_ROOM_URL="${DASHBOARD_URL}" \
+  bash scripts/deploy_control_room_a2a_cloud_run.sh
+
+# 5. Deploy the Control Room Dashboard on Cloud Run.
+#    PLANNER_AGENT_URL points at the bridge from 4a. CONTROL_ROOM_A2A_URL
+#    points at the bridge from 4b — when set, the Dashboard dispatches
+#    the workflow through that bridge (recommended). If you skipped 4b
+#    and 3 still exists, leave CONTROL_ROOM_A2A_URL unset and the
+#    Dashboard falls back to invoking the AE-hosted Workflow via SDK,
+#    using CONTROL_ROOM_AGENT_ENGINE_ID from deployment_metadata.json.
+PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.app/" \
+  CONTROL_ROOM_A2A_URL="https://scale-control-room-a2a-${PROJECT_NUMBER}.us-central1.run.app/" \
   bash scripts/deploy_control_room_cloud_run.sh
 ```
 
-> **If you redeploy the Dashboard later**, re-run step 4's `gcloud run services update scale-planner-a2a --update-env-vars CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status"` so the planner bridge keeps pushing status to the right host. Without it, the dashboard renders only Control Room + A2A bubbles — Planner / Executor bubbles silently drop.
+> **If you redeploy the Dashboard later**, re-run the env-var update for **both** bridges so each keeps pushing status to the right host:
+> ```bash
+> gcloud run services update scale-planner-a2a --region=us-central1 \
+>   --update-env-vars CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status"
+> gcloud run services update scale-control-room-a2a --region=us-central1 \
+>   --update-env-vars CONTROL_ROOM_STATUS_URL="${DASHBOARD_URL}/api/push_status"
+> ```
+> Without these, the dashboard renders only Control Room + A2A bubbles — Planner / Executor bubbles silently drop.
 
 Deployment assets (all under `scripts/`): `Dockerfile.planner-a2a`, `Dockerfile.control-room`, `Dockerfile.execution-crew`, `cloudbuild-*.yaml`, `deploy_*_cloud_run.sh`, `deploy_to_agent_engine.py`.
 

@@ -86,7 +86,15 @@ fi
 echo ""
 echo "--- Step 1.5: Ensuring custom planning runtime role"
 
-PLANNING_ROLE_PERMISSIONS="aiplatform.endpoints.predict,aiplatform.locations.get,aiplatform.locations.list,aiplatform.reasoningEngines.get,aiplatform.reasoningEngines.query,resourcemanager.projects.get"
+# aiplatform.sessions.* is required by google-cloud-aiplatform >=1.146:
+# the dashboard's SDK-direct path to the AE-hosted Control Room hits
+# /reasoningEngines/<id>/sessions/<id> as a real REST sub-resource gated
+# by these perms. Pre-1.146 the session was created in-engine and only
+# needed reasoningEngines.query. The Cloud Run A2A bridge path doesn't
+# need these perms, but the SDK-direct fallback (control_room_engine in
+# app_server.py) still does — keep them here so re-running this script
+# doesn't revert the live role and reintroduce the 403.
+PLANNING_ROLE_PERMISSIONS="aiplatform.endpoints.predict,aiplatform.locations.get,aiplatform.locations.list,aiplatform.reasoningEngines.get,aiplatform.reasoningEngines.query,aiplatform.sessions.create,aiplatform.sessions.get,aiplatform.sessions.list,aiplatform.sessions.delete,resourcemanager.projects.get"
 
 if gcloud iam roles describe "${PLANNING_ROLE_ID}" \
     --project="${PROJECT_ID}" \
@@ -134,7 +142,11 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --condition=None \
     --quiet > /dev/null
 
-# Execution Agent: Vertex AI User + Editor (full access)
+# Execution Agent: Vertex AI User + Editor (full access).
+# Reused by the Cloud Run Control Room A2A bridge (scale-control-room-a2a)
+# for IAM parity with the AE-hosted Control Room Workflow it replaces —
+# see scripts/deploy_control_room_a2a_cloud_run.sh, which defaults its
+# --service-account to execution-agent-sa.
 echo "  Granting roles/aiplatform.user to ${EXECUTION_SA}..."
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${EXECUTION_SA_EMAIL}" \

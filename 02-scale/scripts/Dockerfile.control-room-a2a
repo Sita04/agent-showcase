@@ -1,0 +1,29 @@
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_LINK_MODE=copy \
+    UV_PRERELEASE=allow
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir uv
+
+ARG UV_EXTRA_INDEX_URL
+ENV UV_EXTRA_INDEX_URL=$UV_EXTRA_INDEX_URL
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --prerelease allow
+# Pin google-adk to the same alpha the Dashboard image uses (see
+# Dockerfile.control-room) — the bridge runs the same Control Room Workflow
+# code, so the ADK runtime version must match.
+RUN uv pip install --python /app/.venv/bin/python "google-adk==2.0.0a2"
+
+COPY . .
+
+ENV PYTHONPATH=/app
+
+EXPOSE 8080
+
+CMD ["/app/.venv/bin/python", "agents/control_room/a2a_server.py"]
