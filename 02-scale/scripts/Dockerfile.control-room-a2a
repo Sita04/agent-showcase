@@ -10,9 +10,6 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-ARG UV_EXTRA_INDEX_URL
-ENV UV_EXTRA_INDEX_URL=$UV_EXTRA_INDEX_URL
-
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --prerelease allow
 # Pin google-adk to the same alpha the Dashboard image uses (see

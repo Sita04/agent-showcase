@@ -50,15 +50,10 @@ echo ""
 # Copy uv.lock from root to context directory
 cp ../uv.lock .
 
-# Get access token for the internal Python registry. Requires the active
-# gcloud account to be the Googler corp account.
-TOKEN="$(gcloud auth print-access-token)"
-UV_URL="https://oauth2accesstoken:${TOKEN}@us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/"
-
 gcloud builds submit \
   --project "${PROJECT_ID}" \
   --config scripts/cloudbuild-control-room-a2a.yaml \
-  --substitutions "_IMAGE_URI=${IMAGE_URI},_UV_EXTRA_INDEX_URL=${UV_URL}" \
+  --substitutions "_IMAGE_URI=${IMAGE_URI}" \
   .
 
 # Write env vars to a temp YAML file so values with special characters (URLs,

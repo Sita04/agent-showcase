@@ -47,11 +47,6 @@ echo ""
 # Copy uv.lock from root to context directory
 cp ../uv.lock .
 
-# Get access token for the internal Python registry. Requires the active
-# gcloud account to be the Googler corp account.
-TOKEN="$(gcloud auth print-access-token)"
-UV_URL="https://oauth2accesstoken:${TOKEN}@us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/"
-
 # Read Control Room Agent ID from metadata if present
 CONTROL_ROOM_AGENT_ENGINE_ID=$(python3 -c "import json; print(json.load(open('deployment_metadata.json')).get('control_room_agent_engine_id', ''))" 2>/dev/null || echo "")
 echo "Control Room Agent ID from metadata: ${CONTROL_ROOM_AGENT_ENGINE_ID}"
@@ -67,7 +62,7 @@ fi
 gcloud builds submit \
   --project "${PROJECT_ID}" \
   --config scripts/cloudbuild-control-room.yaml \
-  --substitutions "_IMAGE_URI=${IMAGE_URI},_UV_EXTRA_INDEX_URL=${UV_URL}" \
+  --substitutions "_IMAGE_URI=${IMAGE_URI}" \
   .
 
 # Write env vars to a temp YAML file so values with special characters (URLs,
