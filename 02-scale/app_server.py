@@ -57,14 +57,23 @@ elif _env_engine_id.strip().lower() in _LOCAL_SENTINELS:
 else:
     CONTROL_ROOM_AGENT_ENGINE_ID = _env_engine_id
 
+# Preferred dispatch path: A2A bridge. When CONTROL_ROOM_A2A_URL is set,
+# the dashboard hands work off via JSON-RPC `message/send` and never touches
+# the AE Python SDK directly — the bridge owns that. Falls back to the
+# legacy SDK / in-process paths when unset (so existing local dev still
+# works without an extra terminal).
+CONTROL_ROOM_A2A_URL = os.environ.get("CONTROL_ROOM_A2A_URL", "").strip().rstrip("/")
+
 control_room_engine = None
 vertexai_client = None
-if CONTROL_ROOM_AGENT_ENGINE_ID:
+if CONTROL_ROOM_A2A_URL:
+    print(f"Using Control Room A2A bridge: {CONTROL_ROOM_A2A_URL}")
+elif CONTROL_ROOM_AGENT_ENGINE_ID:
     print(f"Using remote Control Room Agent: {CONTROL_ROOM_AGENT_ENGINE_ID}")
     vertexai_client = vertexai.Client(project=PROJECT_ID, location=REGION)
     control_room_engine = vertexai_client.agent_engines.get(name=CONTROL_ROOM_AGENT_ENGINE_ID)
 else:
-    print("WARNING: CONTROL_ROOM_AGENT_ENGINE_ID not found. Falling back to local runner.")
+    print("WARNING: no Control Room A2A bridge or Agent Engine configured. Falling back to local runner.")
 
 from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
@@ -156,8 +165,8 @@ api_app.add_middleware(
 )
 
 _runner = None
-if not control_room_engine:
-    # Persistent runner for local dev
+if not control_room_engine and not CONTROL_ROOM_A2A_URL:
+    # Persistent runner for local dev (only when neither remote path is wired)
     _runner = InMemoryRunner(
         agent=ControlRoomAgent,
         app_name="control_room_app",
@@ -446,7 +455,56 @@ async def chat(
 
         async def run_agent():
             try:
-                if control_room_engine:
+                if CONTROL_ROOM_A2A_URL:
+                    # Preferred path: dispatch via A2A bridge. Status pushes
+                    # (Planner / Executor bubbles) arrive concurrently via
+                    # /api/push_status side-channel. We only need to drive
+                    # the request and surface the final orchestration_report.
+                    import httpx, uuid
+                    payload = {
+                        "jsonrpc": "2.0",
+                        "id": f"req-cr-{session_id}",
+                        "method": "message/send",
+                        "params": {
+                            "message": {
+                                "message_id": str(uuid.uuid4()),
+                                "parts": [{"text": prompt}],
+                                "role": "user",
+                                "metadata": {"session_id": session_id},
+                            }
+                        },
+                    }
+                    async with asyncio.timeout(AGENT_ENGINE_TIMEOUT_S):
+                        async with httpx.AsyncClient(timeout=AGENT_ENGINE_TIMEOUT_S) as http:
+                            async with http.stream("POST", f"{CONTROL_ROOM_A2A_URL}/", json=payload) as resp:
+                                if resp.status_code != 200:
+                                    await queue.put({
+                                        "type": "status",
+                                        "name": "error",
+                                        "text": f"Control Room A2A bridge HTTP {resp.status_code}",
+                                    })
+                                    return
+                                async for line in resp.aiter_lines():
+                                    if not line:
+                                        continue
+                                    try:
+                                        data = json.loads(line)
+                                    except (ValueError, TypeError):
+                                        continue
+                                    if "error" in data:
+                                        await queue.put({
+                                            "type": "status",
+                                            "name": "error",
+                                            "text": f"A2A error: {data['error'].get('message', 'unknown')}",
+                                        })
+                                        continue
+                                    # Final report is pushed by the Control Room
+                                    # itself via /api/push_status (emit_final_report
+                                    # with role=final_report:*) — same convention as
+                                    # the AE path. We deliberately don't synthesize a
+                                    # WorkflowComplete from the A2A artifact here, or
+                                    # the explainer would narrate the outcome twice.
+                elif control_room_engine:
                     async with asyncio.timeout(AGENT_ENGINE_TIMEOUT_S):
                         # google-cloud-aiplatform >=1.146 returns a thin AgentEngine
                         # resource handle from `agent_engines.get(...)` — the per-engine
