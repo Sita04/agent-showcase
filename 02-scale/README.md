@@ -387,22 +387,26 @@ Deployment assets (all under `scripts/`): `Dockerfile.planner-a2a`, `Dockerfile.
 
 ### Redeploying Just the Dashboard
 
-To ship UI / `app_server.py` / `demo_knowledge.md` changes without touching the Planner A2A bridge or any Agent Engine instance:
+To ship UI / `app_server.py` / `demo_knowledge.md` changes without touching either A2A bridge or any Agent Engine instance:
 
 ```bash
 cd 02-scale
 git pull
 PLANNER_AGENT_URL="https://scale-planner-a2a-${PROJECT_NUMBER}.us-central1.run.app/" \
+  CONTROL_ROOM_A2A_URL="https://scale-control-room-a2a-${PROJECT_NUMBER}.us-central1.run.app/" \
   bash scripts/deploy_control_room_cloud_run.sh
 ```
+
+> **Forgetting `CONTROL_ROOM_A2A_URL`** silently regresses the Dashboard onto the legacy SDK-direct path (`CONTROL_ROOM_AGENT_ENGINE_ID` from `deployment_metadata.json`), which is exactly the failure surface the bridge exists to avoid. The post-deploy smoke check still passes either way as long as the AE engine is reachable, so you won't notice until the next `google-cloud-aiplatform` upgrade silently breaks `/api/chat` again.
 
 **Cloud Run env vars the Dashboard depends on** (set once with `gcloud run services update scale-control-room --region=us-central1 --update-env-vars KEY=VALUE`; they survive subsequent redeploys):
 
 | Env var | Required for | Notes |
 | ------- | ------------ | ----- |
 | `PLANNER_AGENT_URL` | All workflows | Set automatically by `deploy_control_room_cloud_run.sh` from the script-time value. |
+| `CONTROL_ROOM_A2A_URL` | Recommended prod path | URL of the `scale-control-room-a2a` Cloud Run service from step 4b. When set, the Dashboard dispatches `/api/chat` workflows via A2A JSON-RPC instead of the Vertex AI Agent Engine SDK — insulating the Dashboard from any future SDK reshuffle. The deploy script forwards this from the script-time value (or `02-scale/.env`). Leave unset only if you've intentionally chosen the legacy SDK path below. |
 | `GEMINI_API_KEY` | Explainer (Live API) | The `gemini-3.1-flash-live-preview` model is only served by the Google AI API, not Vertex AI. Without this, the Explainer widget renders but every Live API call closes with WebSocket code `1008` ("Publisher Model … not found"). The deploy script forwards this from the local `.env` automatically; get a key at https://aistudio.google.com/apikey if you don't have one. |
-| `CONTROL_ROOM_AGENT_ENGINE_ID` | All workflows | Production value is the `projects/.../reasoningEngines/...` resource name from step 3 — the Dashboard invokes that AE-hosted Workflow instead of running it in-process. `deploy_control_room_cloud_run.sh` reads this from `deployment_metadata.json` and forwards it automatically, so a normal `--control-room-only` deploy followed by a Dashboard redeploy keeps it in sync. Set to `local` only for in-process local dev. |
+| `CONTROL_ROOM_AGENT_ENGINE_ID` | Legacy fallback | The `projects/.../reasoningEngines/...` resource name from step 3. **Used only when `CONTROL_ROOM_A2A_URL` is unset** — the Dashboard then invokes the AE-hosted Workflow directly via SDK. `deploy_control_room_cloud_run.sh` reads this from `deployment_metadata.json` and forwards it automatically. Set to `local` to force the in-process runner (only useful for local dev). |
 
 > **Note:** the deploy script writes the env-vars file using `--env-vars-file`, which **replaces** all env vars on each deploy. Anything set via `gcloud run services update --update-env-vars …` will be wiped on the next redeploy — bake new vars into `deploy_control_room_cloud_run.sh` (or `.env` for `GEMINI_API_KEY`) instead.
 
@@ -439,12 +443,23 @@ curl https://scale-planner-a2a-761793285222.us-central1.run.app/.well-known/agen
 
 * **Control Room UI:** `https://scale-control-room-761793285222.us-central1.run.app`
 * **Planner A2A bridge:** `https://scale-planner-a2a-761793285222.us-central1.run.app`
+* **Control Room A2A bridge:** `https://scale-control-room-a2a-761793285222.us-central1.run.app`
 
-Smoke checks:
+Smoke checks (cheap):
 ```bash
 curl https://scale-control-room-761793285222.us-central1.run.app/api/health
 curl https://scale-planner-a2a-761793285222.us-central1.run.app/.well-known/agent.json
+curl https://scale-control-room-a2a-761793285222.us-central1.run.app/.well-known/agent-card.json
 ```
+
+The cheap checks above only prove the processes are listening — they do **not** exercise `/api/chat`, the SDK call surface, or AE engines. The April 2026 incident sat green-on-broken behind exactly these probes for two weeks. For real validation, drive a CUJ end-to-end:
+```bash
+curl -sS -X POST https://scale-control-room-761793285222.us-central1.run.app/api/chat \
+  -F "prompt=Restock 2 Google Droid figures for the Tokyo office" \
+  -F "session_id=manual-smoke-$(date +%s)" \
+  --max-time 540 | grep -E '"event_type": "WorkflowComplete"|"name": "error"'
+```
+This is the same check `deploy_control_room_cloud_run.sh` runs automatically post-deploy.
 
 ### Troubleshooting (Deploy)
 
