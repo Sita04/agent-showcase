@@ -1,12 +1,12 @@
 # Scale AI Agents: Global Retail IT Orchestrator
 
-**Owners:** Emmanuel Awa, Kaz Sato
-**Track:** Build AI Apps & Agents
-**Session IDs:** GCS109, SHOW134
-**Type:** Live Demo
-**Level:** 200 Technical (Apply/Use)
+**Owners:** Emmanuel Awa, Kaz Sato  
+**Track:** Build AI Apps & Agents  
+**Session IDs:** GCS109, SHOW134  
+**Type:** Live Demo  
+**Level:** 200 Technical (Apply/Use)  
 
-**Live demo:** https://scale-control-room-761793285222.us-central1.run.app
+**Live demo:** https://scale-control-room-761793285222.us-central1.run.app  
 
 ## Overview
 
