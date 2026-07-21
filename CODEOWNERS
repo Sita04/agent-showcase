@@ -6,11 +6,10 @@
 * @kazunori279
 * @sita04
 * @laxmi-genai
-* @vineshpm
 
 ## Subproject owners
 
 * /01-build/ @laxmi-genai
 * /02-scale/ @awaemmanuel @kazunori279
-* /03-govern/ @sital04 @vineshpm
+* /03-govern/ @sita04 
 * /vector-search-backend/ @kazunori279
