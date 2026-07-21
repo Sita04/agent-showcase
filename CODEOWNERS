@@ -2,15 +2,15 @@
 
 ## Default owners for the entire repo
 
-* @emmanuelawa
-* @kazsato
-* @sitalakshmi
-* @laxmih
-* @vineshpm
+* awaemmanuel
+* kazunori279
+* sita04
+* laxmi-genai
+* vineshpm
 
 ## Subproject owners
 
-* /01-build/ @laxmih
-* /02-scale/ @emmanuelawa @kazsato
-* /03-govern/ @sitalakshmi @vineshpm
-* /vector-search-backend/ @kazsato
+* /01-build/ laxmi-genai
+* /02-scale/ awaemmanuel kazunori279
+* /03-govern/ sital04 vineshpm
+* /vector-search-backend/ kazunori279
