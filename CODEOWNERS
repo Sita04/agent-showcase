@@ -9,7 +9,7 @@
 
 ## Subproject owners
 
-* /01-build/ @laxmi-genai
-* /02-scale/ @awaemmanuel @kazunori279
-* /03-govern/ @sita04 
-* /vector-search-backend/ @kazunori279
+/01-build/ @laxmi-genai
+/02-scale/ @awaemmanuel @kazunori279
+/03-govern/ @sita04
+/vector-search-backend/ @kazunori279
