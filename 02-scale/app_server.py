@@ -33,6 +33,12 @@ EXPLAINER_LIVE_MODEL = os.environ.get("EXPLAINER_LIVE_MODEL", "gemini-3.1-flash-
 EXPLAINER_LIVE_VOICE = os.environ.get("EXPLAINER_LIVE_VOICE", "Kore")
 EXPLAINER_LIVE_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
+# Explainer output languages the UI can request (via the per-turn `lang` field).
+# Only the Explainer is multilingual; the demo agents stay English. The Live
+# voice (Kore) is multilingual, so switching is driven purely by instruction.
+EXPLAINER_LANGUAGES = {"en": "English", "ja": "Japanese"}
+EXPLAINER_DEFAULT_LANG = "en"
+
 # Resolve which Control Room agent to use:
 #   * env var unset      → fall back to deployment_metadata.json (convenience)
 #   * env var = ""       → force local in-process runner
@@ -189,6 +195,26 @@ def _load_explainer_knowledge() -> str:
         )
 
 
+def _language_directive(lang: str) -> str:
+    """One-line output-language instruction prepended to every turn.
+
+    Kept per-turn (not baked into the system instruction) so the user can
+    switch languages mid-session without dropping the Live session.
+    """
+    language = EXPLAINER_LANGUAGES.get(lang or "", EXPLAINER_LANGUAGES[EXPLAINER_DEFAULT_LANG])
+    directive = (
+        f"OUTPUT LANGUAGE: {language}. Respond ONLY in {language} — both the "
+        f"spoken audio and the transcript must be in {language}."
+    )
+    if language == "Japanese":
+        directive += (
+            " Keep product, technology, and agent names in their original form "
+            "(ADK, LangGraph, CrewAI, A2A, MCP, Agent Engine, Gemini, Control "
+            "Room, Planner, Executor)."
+        )
+    return directive
+
+
 def _build_system_instruction() -> str:
     knowledge = _load_explainer_knowledge()
     return f"""
@@ -196,6 +222,11 @@ You are the Explainer AI for the Scale Agents Control Room demo.
 You receive three kinds of turns over a single persistent session, each
 prefixed with a tag. The session keeps its own conversation history, so
 treat earlier turns as already known — do not re-summarize them.
+
+Every turn begins with an OUTPUT LANGUAGE line. Always produce your spoken
+audio and transcript in that language, regardless of the language of the
+demo events or the user's question. The language can change between turns;
+always honor the most recent one.
 
 [CHAT] — a question from the user. Answer concisely (2-4 sentences) and,
 when useful, guide them toward trying CUJ 1, then CUJ 2, then CUJ 3.
@@ -346,6 +377,11 @@ async def explainer_live(ws: WebSocket):
                     )
                 else:
                     continue
+
+                # Prepend the requested output language so both the audio and
+                # transcript follow it. Per-turn (not in the system instruction)
+                # so switching languages doesn't require a session reconnect.
+                prompt = f"{_language_directive(payload.get('lang'))}\n{prompt}"
 
                 try:
                     await session.send_realtime_input(text=prompt)

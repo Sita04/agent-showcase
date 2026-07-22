@@ -40,6 +40,14 @@ let completedCujIds = new Set();
 // the intended state and audio kicks in as soon as the user clicks
 // anywhere (Dispatch, a CUJ button, etc.).
 let ttsEnabled = true;
+// Explainer output language. Sent with every Live turn; the backend prepends
+// a matching OUTPUT LANGUAGE directive so both the audio and transcript follow
+// it. Only the Explainer is multilingual — the demo agents stay English.
+const EXPLAINER_LANG_LABELS = { en: 'EN', ja: '日本語' };
+let explainerLang = (() => {
+    try { return localStorage.getItem('explainerLang') === 'ja' ? 'ja' : 'en'; }
+    catch (_) { return 'en'; }
+})();
 let liveSocket = null;
 let liveSocketConnecting = null;
 let liveTurnQueue = Promise.resolve();
@@ -691,7 +699,10 @@ async function attemptLiveTurn(payload, bubble, attempt) {
         ws.addEventListener('message', onMessage);
         ws.addEventListener('close', onClose);
         try {
-            ws.send(JSON.stringify(payload));
+            // Stamp the current output language at send time (not build time) so
+            // a language switch applies to the very next turn, even for observe /
+            // summary payloads that were queued earlier.
+            ws.send(JSON.stringify({ ...payload, lang: explainerLang }));
         } catch (e) {
             cleanup();
             resolve(transcript);
@@ -726,6 +737,18 @@ function setTtsEnabled(on) {
         ensureLiveAudioCtx();
     } else {
         stopLiveAudio();
+    }
+}
+
+function setExplainerLang(lang) {
+    explainerLang = lang === 'ja' ? 'ja' : 'en';
+    try { localStorage.setItem('explainerLang', explainerLang); } catch (_) {}
+    const btn = document.getElementById('lang-toggle');
+    if (btn) {
+        btn.textContent = EXPLAINER_LANG_LABELS[explainerLang];
+        btn.classList.toggle('active', explainerLang === 'ja');
+        const next = explainerLang === 'ja' ? 'English' : 'Japanese';
+        btn.setAttribute('aria-label', `Explainer output language: ${explainerLang === 'ja' ? 'Japanese' : 'English'}. Switch to ${next}.`);
     }
 }
 
@@ -1116,6 +1139,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // requires a user gesture to actually play sound (browser policy), but
     // the toggle should match the variable from the start.
     setTtsEnabled(ttsEnabled);
+
+    const langToggle = document.getElementById('lang-toggle');
+    if (langToggle) {
+        langToggle.addEventListener('click', () => setExplainerLang(explainerLang === 'ja' ? 'en' : 'ja'));
+    }
+    // Reflect the restored/default language on the button from the start.
+    setExplainerLang(explainerLang);
 
     const resetBtn = document.getElementById('reset-session-btn');
     if (resetBtn) {
