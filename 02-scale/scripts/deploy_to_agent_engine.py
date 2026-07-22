@@ -144,6 +144,15 @@ def deploy_execution_crew(args: argparse.Namespace) -> str:
             "python-dotenv",
             "requests",
             "google-cloud-aiplatform>=1.144",
+            # The Agent Engine serving harness imports `opentelemetry._events`,
+            # an experimental module that exists only in opentelemetry-api
+            # 1.26–1.42 (removed in 1.43+). Left unpinned, the resolver floats to
+            # the latest (>=1.44), which dropped `_events`, so every container
+            # crash-loops on boot with
+            # `ImportError: cannot import name '_events' from 'opentelemetry'`.
+            # Cap below 1.43 so the module is present; floor at 1.30 for CrewAI.
+            "opentelemetry-api>=1.30.0,<1.43",
+            "opentelemetry-sdk>=1.30.0,<1.43",
         ],
         "extra_packages": [
             patched_wheel,
@@ -227,6 +236,11 @@ def deploy_planning_agent(args: argparse.Namespace) -> str:
             "google-cloud-resource-manager>=1.14.2",
             "requests",
             "nest_asyncio",
+            # See deploy_execution_crew: the AE serving harness imports
+            # `opentelemetry._events`, which was removed in opentelemetry-api
+            # 1.43+, so cap below 1.43 (unpinned floats to 1.44 and crash-loops).
+            "opentelemetry-api>=1.30.0,<1.43",
+            "opentelemetry-sdk>=1.30.0,<1.43",
         ],
         "extra_packages": [
             "agents",
@@ -362,6 +376,11 @@ def deploy_control_room_agent(args: argparse.Namespace) -> str:
             "google-adk==2.0.0a3",
             "httpx",
             "python-dotenv",
+            # See deploy_execution_crew: the AE serving harness imports
+            # `opentelemetry._events`, which was removed in opentelemetry-api
+            # 1.43+, so cap below 1.43 (unpinned floats to 1.44 and crash-loops).
+            "opentelemetry-api>=1.30.0,<1.43",
+            "opentelemetry-sdk>=1.30.0,<1.43",
         ],
         extra_packages=["agents"],
         env_vars=env_vars,

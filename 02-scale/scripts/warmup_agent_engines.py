@@ -50,16 +50,36 @@ def warmup_engine(client, engine_id: str, label: str, query_input: str) -> str:
     
     try:
         if label == "Control Room Agent":
-            print(f"  [{label}] Sending warm-up query via async_stream_query...")
+            print(f"  [{label}] Creating session + streaming via manager surface...")
             import asyncio
-            
+
             async def run_async():
-                engine = client.agent_engines.get(name=engine_id)
+                # google-cloud-aiplatform >=1.146 returns a thin AgentEngine
+                # handle from agent_engines.get(...) — the per-engine
+                # async_create_session / async_stream_query methods earlier SDKs
+                # auto-wired no longer exist. Drive the RPCs via the manager
+                # surface, exactly as app_server.py does in production.
+                op = await client.aio.agent_engines.sessions.create(
+                    name=engine_id,
+                    user_id="warmup_user",
+                    config={"wait_for_completion": True},
+                )
+                ae_session_id = op.response.name.rsplit("/", 1)[-1]
                 events = []
-                async for event in engine.async_stream_query(user_id="warmup_user", message=query_input):
+                async for event in client.agent_engines._async_stream_query(
+                    name=engine_id,
+                    config={
+                        "class_method": "async_stream_query",
+                        "input": {
+                            "user_id": "warmup_user",
+                            "session_id": ae_session_id,
+                            "message": query_input,
+                        },
+                    },
+                ):
                     events.append(event)
                 return events
-                
+
             results = asyncio.run(run_async())
             preview = str(results[-1])[:200] if results else "No response"
         else:
@@ -109,7 +129,9 @@ def main():
             pool.submit(
                 warmup_engine, client, control_room_id,
                 "Control Room Agent",
-                "Hello, warm-up ping.",
+                # The Control Room parses a JSON envelope ({session_id, objective}),
+                # the same shape app_server.py sends on /api/chat.
+                json.dumps({"session_id": "warmup", "objective": "Hello, warm-up ping."}),
             ): "control_room",
         }
         for future in as_completed(futures):
@@ -120,7 +142,7 @@ def main():
                 print(f"  [{label}] FAILED: {e}")
 
     total = time.monotonic() - start
-    print(f"\nDone in {total:.0f}s. Both engines are warm.")
+    print(f"\nDone in {total:.0f}s. All engines are warm.")
 
 
 if __name__ == "__main__":

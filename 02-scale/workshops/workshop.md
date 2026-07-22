@@ -413,7 +413,7 @@ class DefaultConfig:
     GOOGLE_CLOUD_LOCATION_REGIONAL: str = "us-central1"
 
     # Models
-    AGENT_MODEL: str = "vertex_ai/gemini-3.1-flash-lite-preview"  # Fast, cheap for execution
+    AGENT_MODEL: str = "vertex_ai/gemini-3.1-flash-lite"  # Fast, cheap for execution
     PLANNING_MODEL: str = "vertex_ai/gemini-2.5-flash"            # Smarter for planning
     EMBEDDER_MODEL: str = "text-embedding-005"
 
