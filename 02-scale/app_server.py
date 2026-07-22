@@ -38,6 +38,13 @@ EXPLAINER_LIVE_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOO
 # voice (Kore) is multilingual, so switching is driven purely by instruction.
 EXPLAINER_LANGUAGES = {"en": "English", "ja": "Japanese"}
 EXPLAINER_DEFAULT_LANG = "en"
+# Fixed opener for SUMMARY turns, per language. Kept as a canonical phrase (not
+# left to the model) so the "run is over" signal is consistent, but localized so
+# it matches the selected output language.
+EXPLAINER_SUMMARY_OPENERS = {
+    "en": "The workflow finished.",
+    "ja": "ワークフローが完了しました。",
+}
 
 # Resolve which Control Room agent to use:
 #   * env var unset      → fall back to deployment_metadata.json (convenience)
@@ -250,8 +257,9 @@ is watching, not chatting. Just narrate the action and stop. If a
 final report is present, summarize the outcome in one sentence. Do
 not call the google_search tool for OBSERVE turns.
 
-[SUMMARY] — a CUJ has just finished. Open with exactly "The workflow
-finished." so the audience knows the run is over. Do not characterize
+[SUMMARY] — a CUJ has just finished. Open with exactly the sentence given
+in the turn's REQUIRED OPENER line (it is already written in the correct
+output language) so the audience knows the run is over. Do not characterize
 the outcome in this opener (no "successfully" / "failed" / "blocked")
 — a "failed" report can still be the intended demo outcome (e.g. the
 Identity Shield CUJ deliberately blocks a destructive action). Then,
@@ -291,9 +299,13 @@ def _build_observe_turn(current_events, active_cuj, final_report) -> str:
     )
 
 
-def _build_summary_turn(cuj, final_report, status) -> str:
+def _build_summary_turn(cuj, final_report, status, lang=EXPLAINER_DEFAULT_LANG) -> str:
+    opener = EXPLAINER_SUMMARY_OPENERS.get(
+        lang or "", EXPLAINER_SUMMARY_OPENERS[EXPLAINER_DEFAULT_LANG]
+    )
     return (
         "[SUMMARY]\n"
+        f"REQUIRED OPENER: {opener}\n"
         f"CUJ: {json.dumps(cuj or {}, ensure_ascii=False)}\n"
         f"OUTCOME STATUS: {status or 'Success'}\n"
         f"FINAL REPORT: {final_report or ''}"
@@ -374,6 +386,7 @@ async def explainer_live(ws: WebSocket):
                         payload.get("cuj"),
                         payload.get("final_report", ""),
                         payload.get("status", "Success"),
+                        payload.get("lang", EXPLAINER_DEFAULT_LANG),
                     )
                 else:
                     continue
