@@ -1,7 +1,7 @@
 {
   "control_room_agent_engine_id": "projects/761793285222/locations/us-central1/reasoningEngines/3395670688328056832",
   "control_room_agent_sa": "execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com",
-  "crew_agent_engine_id": "projects/761793285222/locations/us-central1/reasoningEngines/4092391624431108096",
+  "crew_agent_engine_id": "projects/761793285222/locations/us-central1/reasoningEngines/8664399566746943488",
   "crew_agent_sa": "execution-agent-sa@gcp-samples-ic0.iam.gserviceaccount.com",
   "crewai_patched_wheel": "vendor/crewai-1.6.1-py3-none-any.whl",
   "planning_agent_engine_id": "projects/761793285222/locations/us-central1/reasoningEngines/1340692252107735040",

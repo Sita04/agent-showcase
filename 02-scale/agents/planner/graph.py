@@ -345,7 +345,9 @@ class PlannerNodes:
                 })
                 
                 _push_to_dashboard("Calling Execution Crew (non-streaming)...", "system")
-                result = await asyncio.to_thread(self.crew_engine.query, input=input_payload)
+                result = await self._query_crew_with_retry(
+                    input_payload, publish_execution_update
+                )
             else:
                 # Fallback: run CrewAI in-process (local dev)
                 try:
@@ -465,6 +467,53 @@ class PlannerNodes:
                 "delegation_status": "failed",
                 "execution_result": f"Error: {str(e)}"
             }
+
+    async def _query_crew_with_retry(
+        self, input_payload, publish_update, max_attempts=4
+    ):
+        """Invoke the Execution Crew engine, retrying transient Agent Engine
+        unavailability with backoff.
+
+        A source-deployed reasoning engine can't use ``keepAliveProbe`` (that
+        field requires a container-image deploy, which is BYOC-blocked here),
+        and ``min_instances`` only keeps the VM warm — the container process is
+        paused on idle and takes ~10s to restart. A request landing during that
+        window comes back as ``400 FAILED_PRECONDITION`` / "Reasoning Engine
+        Execution failed ... Service Unavailable". That's a cold-start blip, not
+        a real failure, so retry the SAME call a few times (≈3+6+12s) instead of
+        surfacing it to the re-planner (which would pointlessly broaden a query
+        that was never the problem). Non-transient errors re-raise immediately.
+        """
+        delay = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return await asyncio.to_thread(
+                    self.crew_engine.query, input=input_payload
+                )
+            except Exception as e:
+                msg = str(e)
+                transient = (
+                    "Service Unavailable" in msg
+                    or "Reasoning Engine Execution failed" in msg
+                    or "UNAVAILABLE" in msg
+                    or "503" in msg
+                )
+                if not transient or attempt == max_attempts:
+                    raise
+                logger.warning(
+                    "[Planner] Crew unavailable (attempt %d/%d): %s; "
+                    "retrying in %ds",
+                    attempt,
+                    max_attempts,
+                    msg[:120],
+                    delay,
+                )
+                await publish_update(
+                    "Execution Crew is warming up, retrying "
+                    f"(attempt {attempt}/{max_attempts})..."
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 20)
 
     async def replan(self, state: PlanState) -> PlanState:
         """CUJ 3 Node: Broaden the item description after a retryable failure
