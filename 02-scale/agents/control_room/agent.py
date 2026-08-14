@@ -276,7 +276,11 @@ async def control_room_orchestrator(ctx: Context, node_input: str):
 
         final_report = "No report returned."
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
+            # Must stay strictly below the enclosing Cloud Run --timeout (600s)
+            # divided by max_attempts, so a slow Planner surfaces as a normal
+            # retryable "Connection error:" report instead of the platform
+            # cutting the request out from under us and returning a bare 504.
+            async with httpx.AsyncClient(timeout=240.0) as client:
                 # Use stream to catch intermediate artifacts from the A2A server
                 obj_preview = current_objective[:80] + ("..." if len(current_objective) > 80 else "")
                 await emit_status("a2a", f"→ Planner: **message/send** \"{obj_preview}\"", role="a2a")

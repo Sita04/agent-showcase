@@ -86,7 +86,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --env-vars-file "${ENV_FILE}" \
   --concurrency 10 \
   --min-instances 1 \
-  --timeout 300 \
+  --timeout 600 \
   --memory 2Gi \
   --allow-unauthenticated
 
